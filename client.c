@@ -4,7 +4,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
-#define SERVER_IP "127.0.0.1"
+#define SERVER_IP "169.254.47.121"
 #define SERVER_PORT 8765 // Server destination port
 #define CLIENT_PORT 9876 // Client source port
 #define BUFFER_SIZE 1024
@@ -18,8 +18,8 @@ int main(int argc, char** argv) {
     char message[BUFFER_SIZE];
 
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        printf("\n Socket creation error \n");
-        return -1;
+        perror("Socket creation error");
+        exit(EXIT_FAILURE);
     }
     
     client_addr.sin_family = AF_INET;
@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
 
     if (bind(sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
         perror("bind failed");
-        return -1;
+        exit(EXIT_FAILURE);
     }
 
     serv_addr.sin_family = AF_INET;
@@ -36,16 +36,16 @@ int main(int argc, char** argv) {
 
     // Convert IPv4 and IPv6 addresses from text to binary form
     if (inet_pton(AF_INET, SERVER_IP, &serv_addr.sin_addr) <= 0) {
-        printf("\nInvalid address/ Address not supported \n");
-        return -1;
+        perror("Invalid address/ Address not supported");
+        exit(EXIT_FAILURE);
     }
 
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        printf("\nConnection Failed \n");
-        return -1;
+        perror("Connection Failed");
+        exit(EXIT_FAILURE);
     }
 
-    while(1) {
+    while (1) {
         printf("Enter message to send to server (type 'quit' to exit): ");
         fgets(message, BUFFER_SIZE, stdin);
 
