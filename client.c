@@ -5,15 +5,14 @@
 #include <arpa/inet.h>
 
 #define SERVER_IP "169.254.47.121"
-#define SERVER_PORT 8765 // Server destination port
-#define CLIENT_PORT 9876 // Client source port
+#define SERVER_PORT 8765
 #define BUFFER_SIZE 1024
 
 int main(int argc, char** argv) {
     int sock = 0;
     int valread;
     
-    struct sockaddr_in serv_addr, client_addr;
+    struct sockaddr_in serv_addr;
     char buffer[BUFFER_SIZE] = {0};
     char message[BUFFER_SIZE];
 
@@ -22,14 +21,6 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
     
-    client_addr.sin_family = AF_INET;
-    client_addr.sin_addr.s_addr = INADDR_ANY;
-    client_addr.sin_port = htons(CLIENT_PORT);
-
-    if (bind(sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
-        perror("bind failed");
-        exit(EXIT_FAILURE);
-    }
 
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(SERVER_PORT); // Set server destination port
