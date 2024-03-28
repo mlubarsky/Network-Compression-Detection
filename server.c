@@ -13,6 +13,9 @@
 #define SERVER_PORT 8765
 #define BUFFER_SIZE 1024
 
+#define UDP_PAYLOAD_SIZE 1000
+#define NUM_UDP_PACKETS 6000
+
 // Store config file contents
 struct Config {
     char Server_IP_Address[16];
@@ -58,6 +61,28 @@ void receive_config(int client_socket, char *config_buffer) {
         exit(EXIT_FAILURE);
     }
     config_buffer[bytes_received] = '\0';
+}
+
+void receive_udp_packets(int udp_sock) {
+    struct sockaddr_in client_addr;
+    socklen_t client_addr_len = sizeof(client_addr);
+    char payload[UDP_PAYLOAD_SIZE];
+    int packets_received = 0;
+
+    printf("Waiting to receive UDP packets...\n");
+
+    // Receive UDP packets
+    while (packets_received < NUM_UDP_PACKETS * 2) { // Double the number for both low and high entropy packets
+        ssize_t bytes_received = recvfrom(udp_sock, payload, sizeof(payload), 0, (struct sockaddr *)&client_addr, &client_addr_len);
+        if (bytes_received < 0) {
+            perror("UDP receive failed");
+            exit(EXIT_FAILURE);
+        }
+        printf("Received UDP packet %d\n", packets_received + 1);
+        packets_received++;
+    }
+
+    printf("Finished receiving UDP packets\n");
 }
 
 int main(int argc, char** argv) {
@@ -114,7 +139,29 @@ int main(int argc, char** argv) {
     printf("Number of UDP Packets: %d\n", config.Number_of_UDP_Packets);
     printf("TTL for UDP Packets: %d\n", config.TTL_for_UDP_Packets);
 
+    // Create UDP socket
+    int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (udp_sock < 0) {
+        perror("UDP socket creation error");
+        exit(EXIT_FAILURE);
+    }
+
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(SERVER_PORT);
+
+    // Bind socket to port
+    if (bind(udp_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("UDP bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    receive_udp_packets(udp_sock);
+
+    // Close sockets
     close(client_socket);
     close(server_fd);
+    close(udp_sock);
     return 0;
 }
