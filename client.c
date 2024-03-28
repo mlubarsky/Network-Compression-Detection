@@ -5,6 +5,8 @@
 #include <arpa/inet.h>
 #include <json-c/json.h>
 
+#define BUFFER_SIZE 1024
+
 struct Config {
     char Server_IP_Address[16];
     int UDP_Source_Port;
@@ -47,7 +49,7 @@ void read_config_file(const char *config_file, char *config_buffer) {
         perror("Failed to open config file");
         exit(EXIT_FAILURE);
     }
-    fread(config_buffer, 1, 1024, file);
+    fread(config_buffer, 1, BUFFER_SIZE, file);
     fclose(file);
 }
 
@@ -58,7 +60,7 @@ void send_config(int tcp_sock, const char *config_file) {
         exit(EXIT_FAILURE);
     }
 
-    char buffer[1024];
+    char buffer[BUFFER_SIZE];
     ssize_t bytes_read;
 
     while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
@@ -91,16 +93,17 @@ void send_udp_packets(int udp_sock, struct Config *config) {
         sendto(udp_sock, payload, sizeof(payload), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
     }
 
-    // Wait for Inter-Measurement Time
-
     sleep(config->Inter_Measurement_Time); // Wait for 15 seconds
-
+    
     // Send high entropy UDP packets
+    char high_entropy[config->UDP_Payload_Size];
+    FILE *urandom = fopen("/dev/urandom", "r");
+    fread(high_entropy, 1, config->UDP_Payload_Size, urandom);
+    fclose(urandom);
     for (int i = 0; i < config->Number_of_UDP_Packets; i++) {
-        char payload[config->UDP_Payload_Size];
-        // Generate random payload here (not implemented in this example)
-        sendto(udp_sock, payload, sizeof(payload), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+        sendto(udp_sock, high_entropy, sizeof(high_entropy), 0, (struct sockaddr*)&server_addr, sizeof(server_addr));
     }
+    printf("Finished sending low and high entropy packets\n");
 }
 
 int main(int argc, char **argv) {
@@ -109,8 +112,9 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
+	// Config file reading and parsing
     struct Config config;
-    char config_buffer[1024];
+    char config_buffer[BUFFER_SIZE];
     char *config_file = argv[1];
     if (config_file == NULL) {
         fprintf(stderr, "Usage: %s <config_file>\n", argv[0]);
@@ -119,12 +123,13 @@ int main(int argc, char **argv) {
     read_config_file(config_file, config_buffer);
     parse_config(config_buffer, &config);
 
+	// Create TCP socket
     int tcp_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (tcp_sock < 0) {
         perror("TCP socket creation error");
         exit(EXIT_FAILURE);
     }
-
+	
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
@@ -140,6 +145,7 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
+	// Send config file to server
     send_config(tcp_sock, config_file);
     close(tcp_sock);
 
