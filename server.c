@@ -10,11 +10,7 @@
 #include <sys/socket.h>
 #include <json-c/json.h>
 
-#define SERVER_PORT 8765
 #define BUFFER_SIZE 1024
-
-#define UDP_PAYLOAD_SIZE 1000
-#define NUM_UDP_PACKETS 6000
 
 // Store config file contents
 struct Config {
@@ -63,29 +59,29 @@ void receive_config(int client_socket, char *config_buffer) {
     config_buffer[bytes_received] = '\0';
 }
 
-void receive_udp_packets(int udp_sock) {
+void receive_udp_packets(int udp_sock, struct Config *config) {
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
-    char payload[UDP_PAYLOAD_SIZE];
+    char payload[config->UDP_Payload_Size];
     int packets_received = 0;
 
-    printf("Waiting to receive UDP packets...\n");
-
     // Receive UDP packets
-    while (packets_received < NUM_UDP_PACKETS * 2) { // Double the number for both low and high entropy packets
+    while (packets_received < config->Number_of_UDP_Packets * 2) {
         ssize_t bytes_received = recvfrom(udp_sock, payload, sizeof(payload), 0, (struct sockaddr *)&client_addr, &client_addr_len);
         if (bytes_received < 0) {
             perror("UDP receive failed");
             exit(EXIT_FAILURE);
         }
-        printf("Received UDP packet %d\n", packets_received + 1);
+        //printf("Received UDP packet %d\n", packets_received + 1);
         packets_received++;
     }
-
-    printf("Finished receiving UDP packets\n");
 }
 
 int main(int argc, char** argv) {
+	if (argc < 2) {
+		printf("Usage: %s <Port>\n", argv[0]);
+		return -1;
+	}
     struct Config config;
     char config_buffer[BUFFER_SIZE];
 
@@ -101,7 +97,7 @@ int main(int argc, char** argv) {
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(SERVER_PORT);
+    server_addr.sin_port = htons(atoi(argv[1]));
 
     // Bind socket to port
     if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
@@ -127,17 +123,17 @@ int main(int argc, char** argv) {
     receive_config(client_socket, config_buffer);
     parse_config(config_buffer, &config);
 
-    printf("Server IP Address: %s\n", config.Server_IP_Address);
-    printf("UDP Source Port: %d\n", config.UDP_Source_Port);
-    printf("UDP Destination Port: %d\n", config.UDP_Destination_Port);
-    printf("TCP Head SYN Port: %d\n", config.TCP_Head_SYN_Port);
-    printf("TCP Tail SYN Port: %d\n", config.TCP_Tail_SYN_Port);
-    printf("TCP Pre-Probing Phase Port: %d\n", config.TCP_Pre_Probing_Phase_Port);
-    printf("TCP Post-Probing Phase Port: %d\n", config.TCP_Post_Probing_Phase_Port);
-    printf("UDP Payload Size: %d\n", config.UDP_Payload_Size);
-    printf("Inter-Measurement Time: %d\n", config.Inter_Measurement_Time);
-    printf("Number of UDP Packets: %d\n", config.Number_of_UDP_Packets);
-    printf("TTL for UDP Packets: %d\n", config.TTL_for_UDP_Packets);
+    // printf("Server IP Address: %s\n", config.Server_IP_Address);
+    // printf("UDP Source Port: %d\n", config.UDP_Source_Port);
+    // printf("UDP Destination Port: %d\n", config.UDP_Destination_Port);
+    // printf("TCP Head SYN Port: %d\n", config.TCP_Head_SYN_Port);
+    // printf("TCP Tail SYN Port: %d\n", config.TCP_Tail_SYN_Port);
+    // printf("TCP Pre-Probing Phase Port: %d\n", config.TCP_Pre_Probing_Phase_Port);
+    // printf("TCP Post-Probing Phase Port: %d\n", config.TCP_Post_Probing_Phase_Port);
+    // printf("UDP Payload Size: %d\n", config.UDP_Payload_Size);
+    // printf("Inter-Measurement Time: %d\n", config.Inter_Measurement_Time);
+    // printf("Number of UDP Packets: %d\n", config.Number_of_UDP_Packets);
+    // printf("TTL for UDP Packets: %d\n", config.TTL_for_UDP_Packets);
 
     // Create UDP socket
     int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -149,7 +145,7 @@ int main(int argc, char** argv) {
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(SERVER_PORT);
+    server_addr.sin_port = htons(config.UDP_Destination_Port);
 
     // Bind socket to port
     if (bind(udp_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
@@ -157,7 +153,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    receive_udp_packets(udp_sock);
+    receive_udp_packets(udp_sock, &config);
 
     // Close sockets
     close(client_socket);
