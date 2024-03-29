@@ -79,29 +79,42 @@ void send_config(int tcp_sock, const char *config_file) {
     printf("Config file sent to server\n");
 }
 
-void send_udp_packets(int udp_sock, struct Config *config) {
+void send_udp_packets(int udp_sock, struct Config *config, char *high_entropy) {
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(config->UDP_Destination_Port);
     server_addr.sin_addr.s_addr = inet_addr(config->Server_IP_Address);
 
+    // Set the Don’t Fragment (DF) flag in the IP header
+    int val = 1;
+    if (setsockopt(udp_sock, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val)) < 0) {;
+        perror("Failed to set DF flag");
+        exit(EXIT_FAILURE);
+    }
+
     // Send low entropy UDP packets
     for (int i = 0; i < config->Number_of_UDP_Packets; i++) {
         char payload[config->UDP_Payload_Size];
-        memset(payload, 0, sizeof(payload)); // Fill payload with zeros
+        
+        // Reserve first 16 bits for unique packet ID
+        *(uint16_t*)payload = htons(i);
+
+        memset(payload + 2, 0, config->UDP_Payload_Size - 2); // Fill remaining payload with zeros
         sendto(udp_sock, payload, sizeof(payload), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
     }
 
     sleep(config->Inter_Measurement_Time); // Wait for 15 seconds
-    
+
     // Send high entropy UDP packets
-    char high_entropy[config->UDP_Payload_Size];
-    FILE *urandom = fopen("/dev/urandom", "r");
-    fread(high_entropy, 1, config->UDP_Payload_Size, urandom);
-    fclose(urandom);
     for (int i = 0; i < config->Number_of_UDP_Packets; i++) {
-        sendto(udp_sock, high_entropy, sizeof(high_entropy), 0, (struct sockaddr*)&server_addr, sizeof(server_addr));
+        char payload[config->UDP_Payload_Size];
+        
+        // Reserve first 16 bits for unique packet ID
+        *(uint16_t*)payload = htons(i + config->Number_of_UDP_Packets);
+
+        memcpy(payload + 2, high_entropy, config->UDP_Payload_Size - 2); // Copy high entropy data to payload
+        sendto(udp_sock, payload, sizeof(payload), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
     }
     printf("Finished sending low and high entropy packets\n");
 }
@@ -112,7 +125,7 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-	// Config file reading and parsing
+    // Config file reading and parsing
     struct Config config;
     char config_buffer[BUFFER_SIZE];
     char *config_file = argv[1];
@@ -123,13 +136,13 @@ int main(int argc, char **argv) {
     read_config_file(config_file, config_buffer);
     parse_config(config_buffer, &config);
 
-	// Create TCP socket
+    // Create TCP socket
     int tcp_sock = socket(AF_INET, SOCK_STREAM, 0);
     if (tcp_sock < 0) {
         perror("TCP socket creation error");
         exit(EXIT_FAILURE);
     }
-	
+
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
@@ -145,7 +158,7 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-	// Send config file to server
+    // Send config file to server
     send_config(tcp_sock, config_file);
     close(tcp_sock);
 
@@ -156,7 +169,12 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    send_udp_packets(udp_sock, &config);
+    char high_entropy[config.UDP_Payload_Size];
+    FILE *urandom = fopen("./random_file", "r");
+    fread(high_entropy, 1, config.UDP_Payload_Size, urandom);
+    fclose(urandom);
+
+    send_udp_packets(udp_sock, &config, high_entropy);
     close(udp_sock);
     return 0;
 }
