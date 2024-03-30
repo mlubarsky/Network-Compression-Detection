@@ -147,11 +147,12 @@ void send_udp_packets(int udp_sock, struct config *config) {
 
     //Send low entropy UDP packets
     for (int i = 0; i < config->number_of_udp_packets; i++) {
-        char payload[config->udp_payload_size + 2]; // Include space for packet ID
+        // char payload[config->udp_payload_size + 2]; // Include space for packet ID
+        // set_packet_id((int*)(payload), i);
 
-        //Set packet ID
-        set_packet_id((int*)(payload), i);
-
+        char payload[config->udp_payload_size];
+        *(uint16_t*)payload = htons(i);
+        
         memset(payload + 2, 0, config->udp_payload_size - 2); // Fill remaining payload with zeros
         sendto(udp_sock, payload, (config->udp_payload_size) + 2, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
     }
@@ -162,8 +163,6 @@ void send_udp_packets(int udp_sock, struct config *config) {
     //Send high entropy UDP packets
     for (int i = 0; i < config->number_of_udp_packets; i++) {
         char payload[config->udp_payload_size];
-
-        // //Reserve first 16 bits for unique packet ID
         *(uint16_t*)payload = htons(i + config->number_of_udp_packets);
 
         memcpy(payload + 2, high_entropy, config->udp_payload_size - 2); // Copy high entropy data to payload
