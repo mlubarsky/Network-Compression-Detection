@@ -5,7 +5,6 @@
 #include <arpa/inet.h>
 #include <json-c/json.h>
 #include <time.h>
-#include <sys/select.h>
 
 #define BUFFER_SIZE 1024
 #define THRESHOLD 100
@@ -56,8 +55,16 @@ void receive_config(int client_socket, char *config_buffer) {
     config_buffer[bytes_received] = '\0';
 }
 
+// Function to send compression detection message to the client via TCP
+void send_detection_message(int client_socket, const char* message) {
+    ssize_t bytes_sent = send(client_socket, message, strlen(message), 0);
+    if (bytes_sent < 0) {
+        perror("TCP send failed");
+        exit(EXIT_FAILURE);
+    }
+}
 
-void receive_udp_packets(int udp_sock, struct config *config) {
+void receive_udp_packets(int udp_sock, struct config *config, int client_socket) {
     struct sockaddr_in client_address;
     socklen_t len = sizeof(client_address);
     int UDPbuffer[(config->udp_payload_size) + 2];
@@ -86,9 +93,9 @@ void receive_udp_packets(int udp_sock, struct config *config) {
             break;
         }
 
-        recvfrom(udp_sock, UDPbuffer, config->udp_payload_size + 2, 0, (struct sockaddr *) &client_address, &len);
+        ssize_t bytes_received = recvfrom(udp_sock, UDPbuffer, config->udp_payload_size, 0, (struct sockaddr *) &client_address, &len);
         packet_id = ntohs(*(uint16_t*)UDPbuffer);
-        printf("Retrieved Low Entropy Packet Number: %d\n", packet_id);
+        printf("Retrieved Low Entropy Packet Number: %d of size %zd\n", packet_id, bytes_received);
     }
     end_time = clock();
     total_time = (((double)end_time) - ((double)start_time)) / ((double)CLOCKS_PER_SEC);
@@ -111,7 +118,7 @@ void receive_udp_packets(int udp_sock, struct config *config) {
         FD_SET(udp_sock, &fds);
 
         struct timeval timeout;
-        timeout.tv_sec = 3; // 3-second timeout
+        timeout.tv_sec = 3;
         timeout.tv_usec = 0;
 
         int ready = select(udp_sock + 1, &fds, NULL, NULL, &timeout);
@@ -123,9 +130,9 @@ void receive_udp_packets(int udp_sock, struct config *config) {
             break;
         }
 
-        recvfrom(udp_sock, UDPbuffer, config->udp_payload_size + 2, 0, (struct sockaddr *) &client_address, &len);
+        ssize_t bytes_received = recvfrom(udp_sock, UDPbuffer, config->udp_payload_size, 0, (struct sockaddr *) &client_address, &len);
         packet_id = ntohs(*(uint16_t*)UDPbuffer);
-        printf("Retrieved High Entropy Packet Number: %d\n", packet_id);
+        printf("Retrieved High Entropy Packet Number: %d of size %zd\n", packet_id, bytes_received);
     }
     end_time = clock();
     total_time = (((double)end_time) - ((double)start_time)) / ((double)CLOCKS_PER_SEC);
@@ -135,18 +142,19 @@ void receive_udp_packets(int udp_sock, struct config *config) {
     // Calculate compression
     if ((high_entropy_time - low_entropy_time) > THRESHOLD) {
         printf("Compression detected!\n");
+        send_detection_message(client_socket, "Compression detected!");
     } else {
         printf("No compression detected!\n");
+        send_detection_message(client_socket, "No compression detected!");
     }
 }
 
-
 int main(int argc, char** argv) {
-    if (argc < 2) {
-	    printf("Usage: %s <Port>\n", argv[0]);
-	    return -1;
+	if (argc < 2) {
+		printf("Usage: %s <Port>\n", argv[0]);
+		return -1;
     }
-    
+
     struct config config;
     char config_buffer[BUFFER_SIZE];
 
@@ -154,6 +162,13 @@ int main(int argc, char** argv) {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
         perror("TCP socket creation error");
+        exit(EXIT_FAILURE);
+    }
+
+    // Set socket option to reuse address
+    int opt = 1;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        perror("setsockopt");
         exit(EXIT_FAILURE);
     }
 
@@ -206,7 +221,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    receive_udp_packets(udp_sock, &config);
+    receive_udp_packets(udp_sock, &config, client_socket);
 
     close(client_socket);
     close(server_fd);
