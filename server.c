@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <json-c/json.h>
 #include <time.h>
+#include <sys/select.h>
 
 #define BUFFER_SIZE 1024
 #define THRESHOLD 100
@@ -55,56 +56,90 @@ void receive_config(int client_socket, char *config_buffer) {
     config_buffer[bytes_received] = '\0';
 }
 
-void receive_udp_packets(int udp_sock, struct config *config) {
-	struct sockaddr_in client_address;
-	socklen_t len = sizeof(client_address);
-	int UDPbuffer[(config->udp_payload_size)+2];
-	clock_t start_time, end_time;
-	double total_time, low_entropy_time, high_entropy_time;
-	int i, packet_id;
 
-	//Receive low entropy data
-    printf("Receiving low entropy \n");
-    memset(UDPbuffer, 0, sizeof(UDPbuffer));
+void receive_udp_packets(int udp_sock, struct config *config) {
+    struct sockaddr_in client_address;
+    socklen_t len = sizeof(client_address);
+    int UDPbuffer[(config->udp_payload_size) + 2];
+    clock_t start_time, end_time;
+    double total_time, low_entropy_time, high_entropy_time;
+    int i, packet_id;
+
+    // Receive low entropy data
+    printf("Receiving low entropy\n");
     start_time = clock();
     for (i = 0; i < config->number_of_udp_packets; i++) {
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(udp_sock, &fds);
+
+        struct timeval timeout;
+        timeout.tv_sec = 3; // 3-second timeout
+        timeout.tv_usec = 0;
+
+        int ready = select(udp_sock + 1, &fds, NULL, NULL, &timeout);
+        if (ready == -1) {
+            perror("select");
+            exit(EXIT_FAILURE);
+        } else if (ready == 0) {
+            printf("No more low entropy packets. Exiting low entropy receive loop.\n");
+            break;
+        }
+
         recvfrom(udp_sock, UDPbuffer, config->udp_payload_size + 2, 0, (struct sockaddr *) &client_address, &len);
-        packet_id = (int)(((unsigned)UDPbuffer[0]) | ((unsigned)UDPbuffer[1] << 8));
-        //packet_id = ntohs(*(uint16_t*)UDPbuffer);
+        packet_id = ntohs(*(uint16_t*)UDPbuffer);
         printf("Retrieved Low Entropy Packet Number: %d\n", packet_id);
     }
     end_time = clock();
-    total_time  = (((double)end_time) - ((double)start_time)) / ((double)CLOCKS_PER_SEC);
+    total_time = (((double)end_time) - ((double)start_time)) / ((double)CLOCKS_PER_SEC);
     low_entropy_time = total_time * 1000;
     printf("Low Entropy Time: %f\n", low_entropy_time);
 
+    // Sleep for the remaining time in the inter-measurement period
+    double remaining_time = config->inter_measurement_time - (low_entropy_time / 1000);
+    if (remaining_time > 0) {
+        printf("Sleeping for %.3f seconds...\n", remaining_time);
+        usleep(remaining_time * 1000000); // Convert seconds to microseconds
+    }
 
-	start_time = 0, end_time = 0;
+    // Receive high entropy data
+    printf("Receiving high entropy\n");
+    start_time = clock();
+    for (i = 0; i < config->number_of_udp_packets; i++) {
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(udp_sock, &fds);
 
+        struct timeval timeout;
+        timeout.tv_sec = 3; // 3-second timeout
+        timeout.tv_usec = 0;
 
-	//Receive high entropy data
-	printf("Receiving high entropy..\n");
-	memset(UDPbuffer, 0, sizeof(UDPbuffer));
-	start_time = clock();
-	memset(&UDPbuffer, 0, config->udp_payload_size + 2);
-	for (i = 0; i < config->number_of_udp_packets; i++) {
-	    recvfrom(udp_sock, UDPbuffer, config->udp_payload_size + 2, 0, (struct sockaddr *) &client_address, &len);
-	    packet_id = ntohs(*(uint16_t*)UDPbuffer);
-	    printf("Retrieved High Entropy Packet Number: %d\n", packet_id);
-	}
+        int ready = select(udp_sock + 1, &fds, NULL, NULL, &timeout);
+        if (ready == -1) {
+            perror("select");
+            exit(EXIT_FAILURE);
+        } else if (ready == 0) {
+            printf("No more high entropy packets. Exiting high entropy receive loop.\n");
+            break;
+        }
+
+        recvfrom(udp_sock, UDPbuffer, config->udp_payload_size + 2, 0, (struct sockaddr *) &client_address, &len);
+        packet_id = ntohs(*(uint16_t*)UDPbuffer);
+        printf("Retrieved High Entropy Packet Number: %d\n", packet_id);
+    }
     end_time = clock();
-    total_time  = (((double)end_time) - ((double)start_time)) / ((double)CLOCKS_PER_SEC);
+    total_time = (((double)end_time) - ((double)start_time)) / ((double)CLOCKS_PER_SEC);
     high_entropy_time = total_time * 1000;
     printf("High Entropy Time: %f\n", high_entropy_time);
 
-
-    //Calculate compression
+    // Calculate compression
     if ((high_entropy_time - low_entropy_time) > THRESHOLD) {
         printf("Compression detected!\n");
     } else {
         printf("No compression detected!\n");
     }
 }
+
 
 int main(int argc, char** argv) {
     if (argc < 2) {
