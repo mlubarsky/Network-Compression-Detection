@@ -21,7 +21,6 @@ struct config {
     int ttl_for_udp_packets;
 };
 
-//Set the packet id
 void set_packet_id(int *data, int index) {
     unsigned char lsb = (unsigned)index & 0xff; // LSB
     unsigned char msb = (unsigned)index >> 8;   // MSB
@@ -88,9 +87,9 @@ void send_config(int tcp_sock, const char *config_file) {
 }
 
 /*
-        Pre-probing Phase
+	Pre-probing Phase
 
-        Sends the config file contents to the server
+	Sends the config file contents to the server
 */
 void send_tcp_packets(int tcp_sock, struct config *config, char* config_file) {
     struct sockaddr_in server_addr;
@@ -108,18 +107,17 @@ void send_tcp_packets(int tcp_sock, struct config *config, char* config_file) {
         exit(EXIT_FAILURE);
     }
 
-    // Send config file to server
     send_config(tcp_sock, config_file);
 }
 
 /*
-        Probing Phase
+	Probing Phase
 
-        Creates low and high entropy packet trains and sends them to the server over UDP
+	Creates low and high entropy packet trains and sends them to the server over UDP
 */
 void send_udp_packets(int udp_sock, struct config *config) {
     char high_entropy[config->udp_payload_size];
-    FILE *urandom = fopen("/dev/random", "r");
+    FILE *urandom = fopen("/dev/urandom", "r");
     if (!urandom) {
         perror("Failed to open file");
         exit(EXIT_FAILURE);
@@ -163,7 +161,7 @@ void send_udp_packets(int udp_sock, struct config *config) {
     //Send high entropy UDP packets
     for (int i = 0; i < config->number_of_udp_packets; i++) {
         char payload[config->udp_payload_size];
-        *(uint16_t*)payload = htons(i + config->number_of_udp_packets);
+        *(uint16_t*)payload = htons(i);
 
         memcpy(payload + 2, high_entropy, config->udp_payload_size - 2); // Copy high entropy data to payload
         sendto(udp_sock, payload, (config->udp_payload_size) + 2, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
@@ -171,6 +169,18 @@ void send_udp_packets(int udp_sock, struct config *config) {
     printf("Sent high entropy packets\n");
 
     //sleep(5); // Server catch up
+}
+
+// Function to receive compression detection message from the server via TCP
+void receive_detection_message(int tcp_sock) {
+    char buffer[BUFFER_SIZE];
+    ssize_t bytes_received = recv(tcp_sock, buffer, BUFFER_SIZE, 0);
+    if (bytes_received < 0) {
+        perror("TCP receive failed");
+        exit(EXIT_FAILURE);
+    }
+    buffer[bytes_received] = '\0';
+    printf("Compression Detection Message from Server: %s\n", buffer);
 }
 
 int main(int argc, char **argv) {
@@ -206,6 +216,8 @@ int main(int argc, char **argv) {
 
     send_tcp_packets(tcp_sock, &config, config_file);
     send_udp_packets(udp_sock, &config);
+    
+    receive_detection_message(tcp_sock);
 
     close(tcp_sock);
     close(udp_sock);
