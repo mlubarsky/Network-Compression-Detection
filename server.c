@@ -30,7 +30,6 @@ void parse_config(const char *config_json, struct config *config) {
         exit(EXIT_FAILURE);
     }
 
-    // Extract values from JSON object and store in config struct
     strcpy(config->server_ip_address, json_object_get_string(json_object_object_get(config_obj, "Server_IP_Address")));
     config->udp_source_port = json_object_get_int(json_object_object_get(config_obj, "UDP_Source_Port"));
     config->udp_destination_port = json_object_get_int(json_object_object_get(config_obj, "UDP_Destination_Port"));
@@ -55,7 +54,6 @@ void receive_config(int client_socket, char *config_buffer) {
     config_buffer[bytes_received] = '\0';
 }
 
-// Function to send compression detection message to the client via TCP
 void send_detection_message(int client_socket, const char* message) {
     ssize_t bytes_sent = send(client_socket, message, strlen(message), 0);
     if (bytes_sent < 0) {
@@ -102,11 +100,10 @@ void receive_udp_packets(int udp_sock, struct config *config, int client_socket)
     low_entropy_time = total_time * 1000;
     printf("Low Entropy Time: %f\n", low_entropy_time);
 
-    // Sleep for the remaining time in the inter-measurement period
     double remaining_time = config->inter_measurement_time - (low_entropy_time / 1000);
     if (remaining_time > 0) {
         printf("Sleeping for %.3f seconds...\n", remaining_time);
-        usleep(remaining_time * 1000000); // Convert seconds to microseconds
+        usleep(remaining_time * 1000000);
     }
 
     // Receive high entropy data
@@ -150,9 +147,9 @@ void receive_udp_packets(int udp_sock, struct config *config, int client_socket)
 }
 
 int main(int argc, char** argv) {
-	if (argc < 2) {
-		printf("Usage: %s <Port>\n", argv[0]);
-		return -1;
+    if (argc < 2) {
+        printf("Usage: %s <Port>\n", argv[0]);
+        return -1;
     }
 
     struct config config;
@@ -210,21 +207,25 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(config.udp_destination_port);
+    // Set up UDP server address
+    struct sockaddr_in udp_server_addr;
+    memset(&udp_server_addr, 0, sizeof(udp_server_addr));
+    udp_server_addr.sin_family = AF_INET;
+    udp_server_addr.sin_addr.s_addr = INADDR_ANY;
+    udp_server_addr.sin_port = htons(config.udp_destination_port);
 
-    // Bind socket to port
-    if (bind(udp_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+    // Bind UDP socket to port
+    if (bind(udp_sock, (struct sockaddr *)&udp_server_addr, sizeof(udp_server_addr)) < 0) {
         perror("UDP bind failed");
         exit(EXIT_FAILURE);
     }
 
+    // Receive UDP packets
     receive_udp_packets(udp_sock, &config, client_socket);
 
+    close(udp_sock);
     close(client_socket);
     close(server_fd);
-    close(udp_sock);
+
     return 0;
 }
