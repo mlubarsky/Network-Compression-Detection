@@ -53,11 +53,32 @@ void read_config_file(const char *config_file, char *config_buffer) {
     fclose(file);
 }
 
-void send_tcp_packets(int tcp_sock, struct config *config, char* config_file) {
+/*
+	Pre-probing phase
+*/
+void send_config_file(int tcp_sock, struct config *config, char* config_file) {
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(config->tcp_pre_probing_phase_port);
+
+	struct sockaddr_in client_addr;
+	memset(&client_addr, 0, sizeof(client_addr));
+	client_addr.sin_family = AF_INET;
+	client_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	client_addr.sin_port = htons(config->tcp_pre_probing_phase_port);
+
+	int reuseaddr = 1;
+	if (setsockopt(tcp_sock, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr)) < 0) {
+		perror("Invalid address");
+		exit(EXIT_FAILURE);
+	}
+
+	if (bind(tcp_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+		perror("Bind failed");
+		exit(EXIT_FAILURE);
+	}
+    
     if (inet_pton(AF_INET, config->server_ip_address, &server_addr.sin_addr) <= 0) {
         perror("Invalid TCP address");
         exit(EXIT_FAILURE);
@@ -93,7 +114,11 @@ void send_tcp_packets(int tcp_sock, struct config *config, char* config_file) {
     printf("Config file sent to server\n");
 }
 
-// Function to receive compression detection message from the server via TCP
+/*
+	Post-probing phase
+	
+	Function to receive compression detection message from the server via TCP
+*/
 void receive_detection_message(int tcp_sock) {
     char buffer[BUFFER_SIZE];
     ssize_t bytes_received = recv(tcp_sock, buffer, BUFFER_SIZE, 0);
@@ -127,6 +152,23 @@ void send_udp_packets(int udp_sock, struct config *config) {
     server_addr.sin_port = htons(config->udp_destination_port);
     server_addr.sin_addr.s_addr = inet_addr(config->server_ip_address);
 
+    struct sockaddr_in client_addr;
+	memset(&client_addr, 0, sizeof(client_addr));
+	client_addr.sin_family = AF_INET;
+	client_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	client_addr.sin_port = htons(config->udp_source_port);
+
+	int reuseaddr = 1;
+	if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr)) < 0) {
+		perror("Invalud address");
+		exit(EXIT_FAILURE);
+	}
+
+	if (bind(udp_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+		perror("Bind failed");
+		exit(EXIT_FAILURE);
+	}
+
     // Set the df flag in the IP header
     int DF = IP_PMTUDISC_DO;
     if (setsockopt(udp_sock, IPPROTO_IP, IP_MTU_DISCOVER, &DF, sizeof(DF)) < 0) {
@@ -159,7 +201,6 @@ void send_udp_packets(int udp_sock, struct config *config) {
     printf("Sent high entropy packets\n");
 }
 
-
 int main(int argc, char **argv) {
     if (argc != 2) {
         printf("Usage: %s <config_file>\n", argv[0]);
@@ -177,27 +218,59 @@ int main(int argc, char **argv) {
     read_config_file(config_file, config_buffer);
     parse_config(config_buffer, &config);
 
-    // Create TCP socket
-    int tcp_sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (tcp_sock < 0) {
+    // Create TCP pre-probing phase socket
+    int tcp_pre_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (tcp_pre_sock < 0) {
         perror("TCP socket creation error");
         exit(EXIT_FAILURE);
     }
 
-    // Create UDP socket
+    // Create UDP probing phase socket
     int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (udp_sock < 0) {
         perror("UDP socket creation error");
         exit(EXIT_FAILURE);
     }
 
-    send_tcp_packets(tcp_sock, &config, config_file);
+	// // Create TCP post-probing phase socket
+    // int tcp_post_sock = socket(AF_INET, SOCK_STREAM, 0);
+    // if (tcp_post_sock < 0) {
+    	// perror("TCP socket creation error");
+    	// exit(EXIT_FAILURE);
+    // }
+
+    send_config_file(tcp_pre_sock, &config, config_file);
     send_udp_packets(udp_sock, &config);
 
-    receive_detection_message(tcp_sock);
+	// struct sockaddr_in client_addr;
+	// memset(&client_addr, 0, sizeof(client_addr));
+	// client_addr.sin_family = AF_INET;
+	// client_addr.sin_addr.s_addr = INADDR_ANY;
+	// client_addr.sin_port = htons(6666);
+// 
+    // if (bind(tcp_post_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+    	// perror("TCP bind failed");
+    	// exit(EXIT_FAILURE);
+    // }
+// 
+    // if (listen(tcp_post_sock, 3) < 0) {
+    	// perror("TCP listen failed");
+    	// exit(EXIT_FAILURE);
+    // }
+// 
+	// int tcp_server_sock;
+    // struct sockaddr_in server_addr;
+    // socklen_t addrlen = sizeof(server_addr);
+	// if ((tcp_server_sock = accept(tcp_post_sock, (struct sockaddr *)&client_addr, &addrlen)) < 0) {
+		// perror("TCP accept failed");
+    	// exit(EXIT_FAILURE);
+	// }
+	
+    receive_detection_message(tcp_pre_sock);
 
-    close(tcp_sock);
+    close(tcp_pre_sock);
     close(udp_sock);
+    // close(tcp_post_sock);
 
     return 0;
 }
