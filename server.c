@@ -45,8 +45,8 @@ void parse_config(const char *config_json, struct config *config) {
     json_object_put(config_obj);
 }
 
-void receive_config(int client_socket, char *config_buffer) {
-    ssize_t bytes_received = recv(client_socket, config_buffer, BUFFER_SIZE, 0);
+void receive_config(int client_sock, char *config_buffer) {
+    ssize_t bytes_received = recv(client_sock, config_buffer, BUFFER_SIZE, 0);
     if (bytes_received < 0) {
         perror("TCP receive failed");
         exit(EXIT_FAILURE);
@@ -54,8 +54,40 @@ void receive_config(int client_socket, char *config_buffer) {
     config_buffer[bytes_received] = '\0';
 }
 
-void send_detection_message(int client_socket, const char* message) {
-    ssize_t bytes_sent = send(client_socket, message, strlen(message), 0);
+void send_detection_message(int client_sock, const char* message) {
+	// struct sockaddr_in client_addr;
+	// memset(&client_addr, 0, sizeof(client_addr));
+	// client_addr.sin_family = AF_INET;
+	// client_addr.sin_port = htons(6666);
+// 
+	// struct sockaddr_in server_addr;
+	// memset(&server_addr, 0, sizeof(server_addr));
+	// server_addr.sin_family = AF_INET;
+	// server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	// server_addr.sin_port = htons(6666);
+// 
+	// int reuseaddr = 1;
+	// if (setsockopt(client_sock, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr)) < 0){
+		// perror("Invalid address");
+		// exit(EXIT_FAILURE);
+	// }
+// 
+	// if (bind(client_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+		// perror("Bind failed");
+		// exit(EXIT_FAILURE);
+	// }
+// 
+	// if (inet_pton(AF_INET, "169.254.200.14", &client_addr.sin_addr) <= 0) {
+		// perror("Invalid TCP address");
+		// exit(EXIT_FAILURE);
+	// }
+// 
+	// if (connect(client_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+		// perror("TCP Connection Failed");
+		// exit(EXIT_FAILURE);
+	// }
+	
+    ssize_t bytes_sent = send(client_sock, message, strlen(message), 0);
     if (bytes_sent < 0) {
         perror("TCP send failed");
         exit(EXIT_FAILURE);
@@ -65,6 +97,7 @@ void send_detection_message(int client_socket, const char* message) {
 void receive_udp_packets(int udp_sock, struct config *config, int client_socket) {
     struct sockaddr_in client_address;
     socklen_t len = sizeof(client_address);
+    
     int UDPbuffer[(config->udp_payload_size) + 2];
     clock_t start_time, end_time;
     double total_time, low_entropy_time, high_entropy_time;
@@ -87,13 +120,13 @@ void receive_udp_packets(int udp_sock, struct config *config, int client_socket)
             perror("select");
             exit(EXIT_FAILURE);
         } else if (ready == 0) {
-            printf("No more low entropy packets. Exiting low entropy receive loop.\n");
+            //printf("No more low entropy packets. Exiting low entropy receive loop.\n");
             break;
         }
 
         ssize_t bytes_received = recvfrom(udp_sock, UDPbuffer, config->udp_payload_size, 0, (struct sockaddr *) &client_address, &len);
         packet_id = ntohs(*(uint16_t*)UDPbuffer);
-        printf("Retrieved Low Entropy Packet Number: %d of size %zd\n", packet_id, bytes_received);
+        //printf("Retrieved Low Entropy Packet Number: %d of size %zd\n", packet_id, bytes_received);
     }
     end_time = clock();
     total_time = (((double)end_time) - ((double)start_time)) / ((double)CLOCKS_PER_SEC);
@@ -102,7 +135,7 @@ void receive_udp_packets(int udp_sock, struct config *config, int client_socket)
 
     double remaining_time = config->inter_measurement_time - (low_entropy_time / 1000);
     if (remaining_time > 0) {
-        printf("Sleeping for %.3f seconds...\n", remaining_time);
+        printf("Sleeping for %f seconds...\n", remaining_time);
         usleep(remaining_time * 1000000);
     }
 
@@ -123,13 +156,13 @@ void receive_udp_packets(int udp_sock, struct config *config, int client_socket)
             perror("select");
             exit(EXIT_FAILURE);
         } else if (ready == 0) {
-            printf("No more high entropy packets. Exiting high entropy receive loop.\n");
+            //printf("No more high entropy packets. Exiting high entropy receive loop.\n");
             break;
         }
 
         ssize_t bytes_received = recvfrom(udp_sock, UDPbuffer, config->udp_payload_size, 0, (struct sockaddr *) &client_address, &len);
         packet_id = ntohs(*(uint16_t*)UDPbuffer);
-        printf("Retrieved High Entropy Packet Number: %d of size %zd\n", packet_id, bytes_received);
+        //printf("Retrieved High Entropy Packet Number: %d of size %zd\n", packet_id, bytes_received);
     }
     end_time = clock();
     total_time = (((double)end_time) - ((double)start_time)) / ((double)CLOCKS_PER_SEC);
@@ -155,21 +188,21 @@ int main(int argc, char** argv) {
     struct config config;
     char config_buffer[BUFFER_SIZE];
 
-    // Create TCP socket
-    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd < 0) {
+    // Create TCP socket for pre-probing phase
+    int tcp_server_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (tcp_server_sock < 0) {
         perror("TCP socket creation error");
         exit(EXIT_FAILURE);
     }
 
     // Set socket option to reuse address
     int opt = 1;
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+    if (setsockopt(tcp_server_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         perror("setsockopt");
         exit(EXIT_FAILURE);
     }
 
-    // Set up server address
+    // Set up server and client address
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
@@ -177,27 +210,27 @@ int main(int argc, char** argv) {
     server_addr.sin_port = htons(atoi(argv[1]));
 
     // Bind socket to port
-    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+    if (bind(tcp_server_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         perror("TCP bind failed");
         exit(EXIT_FAILURE);
     }
 
     // Listen for connections
-    if (listen(server_fd, 3) < 0) {
+    if (listen(tcp_server_sock, 3) < 0) {
         perror("TCP listen failed");
         exit(EXIT_FAILURE);
     }
 
     // Accept connection
-    int client_socket;
+    int tcp_client_sock;
     struct sockaddr_in client_addr;
     socklen_t addrlen = sizeof(client_addr);
-    if ((client_socket = accept(server_fd, (struct sockaddr *)&client_addr, &addrlen)) < 0) {
+    if ((tcp_client_sock = accept(tcp_server_sock, (struct sockaddr *)&client_addr, &addrlen)) < 0) {
         perror("TCP accept failed");
         exit(EXIT_FAILURE);
     }
 
-    receive_config(client_socket, config_buffer);
+    receive_config(tcp_client_sock, config_buffer);
     parse_config(config_buffer, &config);
 
     // Create UDP socket
@@ -220,12 +253,12 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
     }
 
-    // Receive UDP packets
-    receive_udp_packets(udp_sock, &config, client_socket);
+    //Receive UDP packets
+    receive_udp_packets(udp_sock, &config, tcp_client_sock);
 
     close(udp_sock);
-    close(client_socket);
-    close(server_fd);
+    close(tcp_client_sock);
+    close(tcp_server_sock);
 
     return 0;
 }
