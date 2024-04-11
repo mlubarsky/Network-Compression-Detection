@@ -13,17 +13,18 @@ sudo apt install libjson-c-dev
 
 1) Compile 
 ```
-//Server compilation
+#Server compilation
 gcc -o server server.c -ljson-c -I/path/to/json-c/include
 
-//Client compilation
+#Client compilation
 gcc -o client client.c -ljson-c -I/path/to/json-c/include
 ```
 2) Run 
 ```
-#On the server system
+#On server side
 ./server 7777
-#On the client system
+
+#On client side
 ./client myconfig.json
 ```
 
