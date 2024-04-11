@@ -130,7 +130,6 @@ void receive_detection_message(int tcp_sock) {
     printf("Compression Detection Message from Server: %s\n", buffer);
 }
 
-
 /*
     Probing Phase
 
@@ -181,8 +180,8 @@ void send_udp_packets(int udp_sock, struct config *config) {
         char payload[config->udp_payload_size];
         *(uint16_t*)payload = htons(i);
 
-        memset(payload + 2, 0, config->udp_payload_size - 2); // Fill remaining payload with zeros
-        sendto(udp_sock, payload, (config->udp_payload_size) + 2, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+        memset(payload + 2, 0, config->udp_payload_size - 2); // Fill payload with zeros
+        sendto(udp_sock, payload, (config->udp_payload_size), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
         usleep(200);
     }
     printf("Sent low entropy packets\n");
@@ -195,7 +194,7 @@ void send_udp_packets(int udp_sock, struct config *config) {
         *(uint16_t*)payload = htons(i);
 
         memcpy(payload + 2, high_entropy, config->udp_payload_size - 2); // Copy high entropy data to payload
-        sendto(udp_sock, payload, (config->udp_payload_size) + 2, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+        sendto(udp_sock, payload, (config->udp_payload_size), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
         usleep(200);
     }
     printf("Sent high entropy packets\n");
@@ -232,45 +231,51 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-	// // Create TCP post-probing phase socket
-    // int tcp_post_sock = socket(AF_INET, SOCK_STREAM, 0);
-    // if (tcp_post_sock < 0) {
-    	// perror("TCP socket creation error");
-    	// exit(EXIT_FAILURE);
-    // }
-
     send_config_file(tcp_pre_sock, &config, config_file);
+	close(tcp_pre_sock);
+    
     send_udp_packets(udp_sock, &config);
-
-	// struct sockaddr_in client_addr;
-	// memset(&client_addr, 0, sizeof(client_addr));
-	// client_addr.sin_family = AF_INET;
-	// client_addr.sin_addr.s_addr = INADDR_ANY;
-	// client_addr.sin_port = htons(6666);
-// 
-    // if (bind(tcp_post_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
-    	// perror("TCP bind failed");
-    	// exit(EXIT_FAILURE);
-    // }
-// 
-    // if (listen(tcp_post_sock, 3) < 0) {
-    	// perror("TCP listen failed");
-    	// exit(EXIT_FAILURE);
-    // }
-// 
-	// int tcp_server_sock;
-    // struct sockaddr_in server_addr;
-    // socklen_t addrlen = sizeof(server_addr);
-	// if ((tcp_server_sock = accept(tcp_post_sock, (struct sockaddr *)&client_addr, &addrlen)) < 0) {
-		// perror("TCP accept failed");
-    	// exit(EXIT_FAILURE);
-	// }
-	
-    receive_detection_message(tcp_pre_sock);
-
-    close(tcp_pre_sock);
     close(udp_sock);
-    // close(tcp_post_sock);
+
+	// Create TCP post-probing phase socket
+    int tcp_post_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (tcp_post_sock < 0) {
+    	perror("TCP socket creation error");
+    	exit(EXIT_FAILURE);
+    }
+
+    int opt = 1;
+    if (setsockopt(tcp_post_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+    	perror("setsockopt");
+    	exit(EXIT_FAILURE);
+    }
+
+    struct sockaddr_in client_addr;
+   	memset(&client_addr, 0, sizeof(client_addr));
+   	client_addr.sin_family = AF_INET;
+   	client_addr.sin_addr.s_addr = INADDR_ANY;
+   	client_addr.sin_port = htons(config.tcp_post_probing_phase_port);
+   
+    if (bind(tcp_post_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+    	perror("TCP bind failed");
+    	exit(EXIT_FAILURE);
+    }
+
+    if (listen(tcp_post_sock, 3) < 0) {
+    	perror("TCP listen failed");
+    	exit(EXIT_FAILURE);
+    }
+
+   	int tcp_server_sock;
+    struct sockaddr_in server_addr;
+    socklen_t addrlen = sizeof(server_addr);
+   	if ((tcp_server_sock = accept(tcp_post_sock, (struct sockaddr *)&server_addr, &addrlen)) < 0) {
+   		perror("TCP accept failed");
+       	exit(EXIT_FAILURE);
+   	}
+
+    receive_detection_message(tcp_server_sock);
+    close(tcp_post_sock);
 
     return 0;
 }
