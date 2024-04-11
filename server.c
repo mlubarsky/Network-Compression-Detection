@@ -30,6 +30,7 @@ void parse_config(const char *config_json, struct config *config) {
         exit(EXIT_FAILURE);
     }
 
+	// Parse each config file field
     strcpy(config->server_ip_address, json_object_get_string(json_object_object_get(config_obj, "Server_IP_Address")));
     config->udp_source_port = json_object_get_int(json_object_object_get(config_obj, "UDP_Source_Port"));
     config->udp_destination_port = json_object_get_int(json_object_object_get(config_obj, "UDP_Destination_Port"));
@@ -45,6 +46,9 @@ void parse_config(const char *config_json, struct config *config) {
     json_object_put(config_obj);
 }
 
+/*
+	Pre-probing phase
+*/
 void receive_config(int client_sock, char *config_buffer) {
     ssize_t bytes_received = recv(client_sock, config_buffer, BUFFER_SIZE, 0);
     if (bytes_received < 0) {
@@ -54,38 +58,47 @@ void receive_config(int client_sock, char *config_buffer) {
     config_buffer[bytes_received] = '\0';
 }
 
-void send_detection_message(int client_sock, const char* message) {
-	// struct sockaddr_in client_addr;
-	// memset(&client_addr, 0, sizeof(client_addr));
-	// client_addr.sin_family = AF_INET;
-	// client_addr.sin_port = htons(6666);
-// 
-	// struct sockaddr_in server_addr;
-	// memset(&server_addr, 0, sizeof(server_addr));
-	// server_addr.sin_family = AF_INET;
-	// server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	// server_addr.sin_port = htons(6666);
-// 
-	// int reuseaddr = 1;
-	// if (setsockopt(client_sock, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr)) < 0){
-		// perror("Invalid address");
-		// exit(EXIT_FAILURE);
-	// }
-// 
-	// if (bind(client_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-		// perror("Bind failed");
-		// exit(EXIT_FAILURE);
-	// }
-// 
-	// if (inet_pton(AF_INET, "169.254.200.14", &client_addr.sin_addr) <= 0) {
-		// perror("Invalid TCP address");
-		// exit(EXIT_FAILURE);
-	// }
-// 
-	// if (connect(client_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
-		// perror("TCP Connection Failed");
-		// exit(EXIT_FAILURE);
-	// }
+/*
+	Post-probing phase
+*/
+void send_detection_message(const char* message, struct config *config) {
+	int client_sock = socket(AF_INET, SOCK_STREAM, 0);
+	if (client_sock < 0) {
+		perror("TCP socket creation error");
+		exit(EXIT_FAILURE);
+	}
+
+	struct sockaddr_in client_addr;
+	memset(&client_addr, 0, sizeof(client_addr));
+	client_addr.sin_family = AF_INET;
+	client_addr.sin_port = htons(config->tcp_post_probing_phase_port);
+
+	struct sockaddr_in server_addr;
+	memset(&server_addr, 0, sizeof(server_addr));
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	server_addr.sin_port = htons(config->tcp_post_probing_phase_port);
+
+	int reuseaddr = 1;
+	if (setsockopt(client_sock, SOL_SOCKET, SO_REUSEPORT, &reuseaddr, sizeof(reuseaddr)) < 0){
+		perror("Invalid address");
+		exit(EXIT_FAILURE);
+	}
+
+	if (bind(client_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+		perror("Bind failed");
+		exit(EXIT_FAILURE);
+	}
+
+	if (inet_pton(AF_INET, "169.254.200.14", &client_addr.sin_addr) <= 0) {
+		perror("Invalid TCP address");
+		exit(EXIT_FAILURE);
+	}
+
+	if (connect(client_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+		perror("TCP Connection Failed");
+		exit(EXIT_FAILURE);
+	}
 	
     ssize_t bytes_sent = send(client_sock, message, strlen(message), 0);
     if (bytes_sent < 0) {
@@ -94,7 +107,11 @@ void send_detection_message(int client_sock, const char* message) {
     }
 }
 
-void receive_udp_packets(int udp_sock, struct config *config, int client_socket) {
+/*
+	Probing phase
+	
+*/
+void receive_udp_packets(int udp_sock, struct config *config) {
     struct sockaddr_in client_address;
     socklen_t len = sizeof(client_address);
     
@@ -119,14 +136,12 @@ void receive_udp_packets(int udp_sock, struct config *config, int client_socket)
         if (ready == -1) {
             perror("select");
             exit(EXIT_FAILURE);
-        } else if (ready == 0) {
-            //printf("No more low entropy packets. Exiting low entropy receive loop.\n");
+        } else if (ready == 0) { // Exit loop if no more packets received
             break;
         }
 
-        ssize_t bytes_received = recvfrom(udp_sock, UDPbuffer, config->udp_payload_size, 0, (struct sockaddr *) &client_address, &len);
+        recvfrom(udp_sock, UDPbuffer, config->udp_payload_size, 0, (struct sockaddr *) &client_address, &len);
         packet_id = ntohs(*(uint16_t*)UDPbuffer);
-        //printf("Retrieved Low Entropy Packet Number: %d of size %zd\n", packet_id, bytes_received);
     }
     end_time = clock();
     total_time = (((double)end_time) - ((double)start_time)) / ((double)CLOCKS_PER_SEC);
@@ -155,14 +170,12 @@ void receive_udp_packets(int udp_sock, struct config *config, int client_socket)
         if (ready == -1) {
             perror("select");
             exit(EXIT_FAILURE);
-        } else if (ready == 0) {
-            //printf("No more high entropy packets. Exiting high entropy receive loop.\n");
+        } else if (ready == 0) { // Exit loop if no more packets received
             break;
         }
 
-        ssize_t bytes_received = recvfrom(udp_sock, UDPbuffer, config->udp_payload_size, 0, (struct sockaddr *) &client_address, &len);
+        recvfrom(udp_sock, UDPbuffer, config->udp_payload_size, 0, (struct sockaddr *) &client_address, &len);
         packet_id = ntohs(*(uint16_t*)UDPbuffer);
-        //printf("Retrieved High Entropy Packet Number: %d of size %zd\n", packet_id, bytes_received);
     }
     end_time = clock();
     total_time = (((double)end_time) - ((double)start_time)) / ((double)CLOCKS_PER_SEC);
@@ -172,10 +185,10 @@ void receive_udp_packets(int udp_sock, struct config *config, int client_socket)
     // Calculate compression
     if ((high_entropy_time - low_entropy_time) > THRESHOLD) {
         printf("Compression detected!\n");
-        send_detection_message(client_socket, "Compression detected!");
+        send_detection_message("Compression detected!", config);
     } else {
         printf("No compression detected!\n");
-        send_detection_message(client_socket, "No compression detected!");
+        send_detection_message("No compression detected!", config);
     }
 }
 
@@ -232,6 +245,9 @@ int main(int argc, char** argv) {
 
     receive_config(tcp_client_sock, config_buffer);
     parse_config(config_buffer, &config);
+    
+    close(tcp_client_sock);
+    close(tcp_server_sock);
 
     // Create UDP socket
     int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -254,11 +270,9 @@ int main(int argc, char** argv) {
     }
 
     //Receive UDP packets
-    receive_udp_packets(udp_sock, &config, tcp_client_sock);
-
+    receive_udp_packets(udp_sock, &config);
+    
     close(udp_sock);
-    close(tcp_client_sock);
-    close(tcp_server_sock);
 
     return 0;
 }
