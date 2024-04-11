@@ -73,17 +73,18 @@ void send_config_file(int tcp_sock, struct config *config, char* config_file) {
 		perror("Invalid address");
 		exit(EXIT_FAILURE);
 	}
-
+	
 	if (bind(tcp_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
 		perror("Bind failed");
 		exit(EXIT_FAILURE);
 	}
-    
+
+    // Convert IP address
     if (inet_pton(AF_INET, config->server_ip_address, &server_addr.sin_addr) <= 0) {
         perror("Invalid TCP address");
         exit(EXIT_FAILURE);
     }
-
+    
     if (connect(tcp_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         perror("TCP Connection Failed");
         exit(EXIT_FAILURE);
@@ -98,6 +99,7 @@ void send_config_file(int tcp_sock, struct config *config, char* config_file) {
     char buffer[BUFFER_SIZE];
     ssize_t bytes_read;
 
+	// Send config file
     while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
         if (send(tcp_sock, buffer, bytes_read, 0) < 0) {
             perror("Failed to send config file");
@@ -111,13 +113,11 @@ void send_config_file(int tcp_sock, struct config *config, char* config_file) {
     }
 
     fclose(file);
-    printf("Config file sent to server\n");
 }
 
 /*
 	Post-probing phase
 	
-	Function to receive compression detection message from the server via TCP
 */
 void receive_detection_message(int tcp_sock) {
     char buffer[BUFFER_SIZE];
@@ -133,7 +133,6 @@ void receive_detection_message(int tcp_sock) {
 /*
     Probing Phase
 
-    Creates low and high entropy packet trains and sends them to the server over UDP
 */
 void send_udp_packets(int udp_sock, struct config *config) {
     char high_entropy[config->udp_payload_size];
@@ -159,7 +158,7 @@ void send_udp_packets(int udp_sock, struct config *config) {
 
 	int reuseaddr = 1;
 	if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr)) < 0) {
-		perror("Invalud address");
+		perror("Invalid address");
 		exit(EXIT_FAILURE);
 	}
 
@@ -177,27 +176,25 @@ void send_udp_packets(int udp_sock, struct config *config) {
 
     //Send low entropy UDP packets
     for (int i = 0; i < config->number_of_udp_packets; i++) {
-        char payload[config->udp_payload_size];
+        char payload[config->udp_payload_size]; // Set payload size to be 1000
         *(uint16_t*)payload = htons(i);
 
         memset(payload + 2, 0, config->udp_payload_size - 2); // Fill payload with zeros
         sendto(udp_sock, payload, (config->udp_payload_size), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
         usleep(200);
     }
-    printf("Sent low entropy packets\n");
 
     sleep(config->inter_measurement_time); // Wait for 15 seconds
 
     //Send high entropy UDP packets
     for (int i = 0; i < config->number_of_udp_packets; i++) {
-        char payload[config->udp_payload_size];
+        char payload[config->udp_payload_size]; // Set payload size to be 1000
         *(uint16_t*)payload = htons(i);
 
         memcpy(payload + 2, high_entropy, config->udp_payload_size - 2); // Copy high entropy data to payload
         sendto(udp_sock, payload, (config->udp_payload_size), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
         usleep(200);
     }
-    printf("Sent high entropy packets\n");
 }
 
 int main(int argc, char **argv) {
@@ -255,7 +252,7 @@ int main(int argc, char **argv) {
    	client_addr.sin_family = AF_INET;
    	client_addr.sin_addr.s_addr = INADDR_ANY;
    	client_addr.sin_port = htons(config.tcp_post_probing_phase_port);
-   
+
     if (bind(tcp_post_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
     	perror("TCP bind failed");
     	exit(EXIT_FAILURE);
