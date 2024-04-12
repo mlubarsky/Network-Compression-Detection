@@ -257,21 +257,21 @@ int main(int argc, char **argv) {
     	perror("TCP bind failed");
     	exit(EXIT_FAILURE);
     }
+    
+     // Convert IP address
+     if (inet_pton(AF_INET, config.server_ip_address, &client_addr.sin_addr) <= 0) {
+         perror("Invalid TCP address");
+         exit(EXIT_FAILURE);
+     }
 
-    if (listen(tcp_post_sock, 3) < 0) {
-    	perror("TCP listen failed");
-    	exit(EXIT_FAILURE);
-    }
-
-   	int tcp_server_sock;
-    struct sockaddr_in server_addr;
-    socklen_t addrlen = sizeof(server_addr);
-   	if ((tcp_server_sock = accept(tcp_post_sock, (struct sockaddr *)&server_addr, &addrlen)) < 0) {
-   		perror("TCP accept failed");
-       	exit(EXIT_FAILURE);
-   	}
-
-    receive_detection_message(tcp_server_sock);
+     sleep(10);
+     
+     if (connect(tcp_post_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+         perror("TCP Connection Failed");
+         exit(EXIT_FAILURE);
+     }
+     
+    receive_detection_message(tcp_post_sock);
     close(tcp_post_sock);
 
     return 0;
