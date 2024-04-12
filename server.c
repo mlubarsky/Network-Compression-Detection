@@ -90,17 +90,21 @@ void send_detection_message(const char* message, struct config *config) {
 		exit(EXIT_FAILURE);
 	}
 
-	if (inet_pton(AF_INET, "169.254.200.14", &client_addr.sin_addr) <= 0) {
-		perror("Invalid TCP address");
-		exit(EXIT_FAILURE);
-	}
+	// Listen for connections
+    if (listen(client_sock, 3) < 0) {
+        perror("TCP listen failed");
+        exit(EXIT_FAILURE);
+    }
 
-	if (connect(client_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
-		perror("TCP Connection Failed");
-		exit(EXIT_FAILURE);
-	}
+    // Accept connection
+    int server_sock;
+    socklen_t addrlen = sizeof(client_addr);
+    if ((server_sock = accept(client_sock, (struct sockaddr *)&client_addr, &addrlen)) < 0) {
+        perror("TCP accept failed");
+        exit(EXIT_FAILURE);
+    }
 	
-    ssize_t bytes_sent = send(client_sock, message, strlen(message), 0);
+    ssize_t bytes_sent = send(server_sock, message, strlen(message), 0);
     if (bytes_sent < 0) {
         perror("TCP send failed");
         exit(EXIT_FAILURE);
@@ -116,13 +120,13 @@ void receive_udp_packets(int udp_sock, struct config *config) {
     socklen_t len = sizeof(client_address);
     
     int UDPbuffer[(config->udp_payload_size) + 2];
-    clock_t start_time, end_time;
-    double total_time, low_entropy_time, high_entropy_time;
+    clock_t start_time_low, start_time_high, end_time_low, end_time_high;
+    double low_entropy_time, high_entropy_time;
     int i, packet_id;
 
     // Receive low entropy data
     printf("Receiving low entropy\n");
-    start_time = clock();
+    start_time_low = clock();
     for (i = 0; i < config->number_of_udp_packets; i++) {
         fd_set fds;
         FD_ZERO(&fds);
@@ -143,9 +147,8 @@ void receive_udp_packets(int udp_sock, struct config *config) {
         recvfrom(udp_sock, UDPbuffer, config->udp_payload_size, 0, (struct sockaddr *) &client_address, &len);
         packet_id = ntohs(*(uint16_t*)UDPbuffer);
     }
-    end_time = clock();
-    total_time = (((double)end_time) - ((double)start_time)) / ((double)CLOCKS_PER_SEC);
-    low_entropy_time = total_time * 1000;
+    end_time_low = clock();
+    low_entropy_time = ((((double)end_time_low) - ((double)start_time_low)) / ((double)CLOCKS_PER_SEC)) * 1000;
     printf("Low Entropy Time: %f\n", low_entropy_time);
 
     double remaining_time = config->inter_measurement_time - (low_entropy_time / 1000);
@@ -156,7 +159,7 @@ void receive_udp_packets(int udp_sock, struct config *config) {
 
     // Receive high entropy data
     printf("Receiving high entropy\n");
-    start_time = clock();
+    start_time_high = clock();
     for (i = 0; i < config->number_of_udp_packets; i++) {
         fd_set fds;
         FD_ZERO(&fds);
@@ -177,9 +180,8 @@ void receive_udp_packets(int udp_sock, struct config *config) {
         recvfrom(udp_sock, UDPbuffer, config->udp_payload_size, 0, (struct sockaddr *) &client_address, &len);
         packet_id = ntohs(*(uint16_t*)UDPbuffer);
     }
-    end_time = clock();
-    total_time = (((double)end_time) - ((double)start_time)) / ((double)CLOCKS_PER_SEC);
-    high_entropy_time = total_time * 1000;
+    end_time_high = clock();
+    high_entropy_time = ((((double)end_time_high) - ((double)start_time_high)) / ((double)CLOCKS_PER_SEC)) * 1000;
     printf("High Entropy Time: %f\n", high_entropy_time);
 
     // Calculate compression
@@ -271,7 +273,6 @@ int main(int argc, char** argv) {
 
     //Receive UDP packets
     receive_udp_packets(udp_sock, &config);
-    
     close(udp_sock);
 
     return 0;
