@@ -8,6 +8,6 @@
     "TCP_Post_Probing_Phase_Port": 6666,
     "UDP_Payload_Size": 1000,
     "Inter_Measurement_Time": 15,
-    "Number_of_UDP_Packets": 500,
+    "Number_of_UDP_Packets": 6000,
     "TTL_for_UDP_Packets": 255
 }
