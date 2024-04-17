@@ -74,6 +74,23 @@ unsigned short checksum(unsigned short *buf, int nwords) {
     return (unsigned short)(~sum);
 }
 
+//
+unsigned short checksum(unsigned short * buffer, int bytes)
+{
+    unsigned long sum = 0;
+    unsigned short answer = 0;
+    int i = bytes;
+    while(i>0)
+    {
+            sum+=*buffer;
+            buffer+=1;
+            i-=2;
+    }
+    sum = (sum >> 16) + (sum & htonl(0x0000ffff));
+    sum += (sum >> 16);
+    return ~sum;
+}
+
 int main(int argc, char **argv) {
     if (argc != 2) {
         printf("Usage: %s <config_file>\n", argv[0]);
