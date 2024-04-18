@@ -10,12 +10,9 @@
 #include <errno.h>
 
 #define BUFFER_SIZE 1024
-
 #define PACKET_LEN 4096
 #define SRC_PORT_X 12345         // Source port X
 #define SRC_PORT_Y 12346         // Source port Y
-#define DEST_PORT_X 50000        // Destination port X (inactive or closed)
-#define DEST_PORT_Y 50001        // Destination port Y (inactive or closed)
 
 struct config {
     char server_ip_address[16];
@@ -63,7 +60,6 @@ void read_config_file(const char *config_file, char *config_buffer) {
     fclose(file);
 }
 
-// Function to calculate TCP checksum
 unsigned short tcp_checksum(struct iphdr *iph, struct tcphdr *tcph) {
     unsigned long sum = 0;
     unsigned short *ptr;
@@ -92,7 +88,6 @@ unsigned short tcp_checksum(struct iphdr *iph, struct tcphdr *tcph) {
     return (unsigned short)(~sum);
 }
 
-// Function to calculate IP checksum
 unsigned short ip_checksum(struct iphdr *iph) {
     unsigned long sum = 0;
     unsigned short *ptr;
@@ -130,7 +125,6 @@ int main(int argc, char **argv) {
     struct sockaddr_in dest_addr;
     char packet[PACKET_LEN];
 
-    // Create raw socket
     if ((sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) < 0) {
         perror("socket");
         exit(EXIT_FAILURE);
@@ -142,7 +136,8 @@ int main(int argc, char **argv) {
     ip_header->version = 4;
     ip_header->tos = 0;
     ip_header->tot_len = htons(sizeof(struct iphdr) + sizeof(struct tcphdr));
-    ip_header->id = htons(54321);
+    // ip_header->id = htons(54321);
+    ip_header->id = 0;
     ip_header->frag_off = 0;
     ip_header->ttl = 255;
     ip_header->protocol = IPPROTO_TCP;
@@ -150,10 +145,10 @@ int main(int argc, char **argv) {
     ip_header->saddr = inet_addr("169.254.200.14");
     ip_header->daddr = inet_addr(config.server_ip_address);
 
-    // Fill in the TCP header (SYN packet)
+    // Fill in the TCP header
     struct tcphdr *tcp_header = (struct tcphdr *) (packet + sizeof(struct iphdr));
     tcp_header->source = htons(SRC_PORT_X); // Source port X
-    tcp_header->dest = htons(DEST_PORT_X);  // Destination port X
+    tcp_header->dest = htons(config.tcp_head_syn_port);  // Destination port for SYN head
     tcp_header->seq = 0;
     tcp_header->ack_seq = 0;
     tcp_header->doff = 5;
@@ -183,7 +178,10 @@ int main(int argc, char **argv) {
 
     // Change source port for the next SYN packet
     tcp_header->source = htons(SRC_PORT_Y); // Source port Y
-    tcp_header->dest = htons(DEST_PORT_Y);  // Destination port Y
+    tcp_header->dest = htons(config.tcp_tail_syn_port);  // Destination port for SYN tail
+
+    tcp_header->check = 0;
+    tcp_header->check = tcp_checksum(ip_header, tcp_header);
 
     // Send SYN packet to port Y
     if (sendto(sockfd, packet, ntohs(ip_header->tot_len), 0, (struct sockaddr *) &dest_addr, sizeof(dest_addr)) < 0) {
