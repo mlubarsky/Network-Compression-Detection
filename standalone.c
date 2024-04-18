@@ -7,7 +7,6 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <sys/time.h>
 #include <errno.h>
 
 #define BUFFER_SIZE 1024
@@ -64,31 +63,50 @@ void read_config_file(const char *config_file, char *config_buffer) {
     fclose(file);
 }
 
-// Function to calculate checksum
-unsigned short checksum(unsigned short *buf, int nwords) {
-    unsigned long sum;
-    for (sum = 0; nwords > 0; nwords--)
-        sum += *buf++;
-    sum = (sum >> 16) + (sum & 0xffff);
-    sum += (sum >> 16);
+// Function to calculate TCP checksum
+unsigned short tcp_checksum(struct iphdr *iph, struct tcphdr *tcph) {
+    unsigned long sum = 0;
+    unsigned short *ptr;
+    int tcplen = ntohs(iph->tot_len) - iph->ihl * 4;
+    int i;
+
+    // Pseudo-header checksum
+    sum += (iph->saddr >> 16) & 0xFFFF;
+    sum += iph->saddr & 0xFFFF;
+    sum += (iph->daddr >> 16) & 0xFFFF;
+    sum += iph->daddr & 0xFFFF;
+    sum += htons(IPPROTO_TCP);
+    sum += htons(tcplen);
+
+    // TCP header checksum
+    ptr = (unsigned short *)tcph;
+    for (i = tcplen; i > 1; i -= 2)
+        sum += *ptr++;
+    if (i == 1)
+        sum += *((unsigned char *)ptr);
+
+    // Fold 32-bit sum to 16 bits
+    while (sum >> 16)
+        sum = (sum & 0xFFFF) + (sum >> 16);
+
     return (unsigned short)(~sum);
 }
 
-//
-unsigned short checksum(unsigned short * buffer, int bytes)
-{
+// Function to calculate IP checksum
+unsigned short ip_checksum(struct iphdr *iph) {
     unsigned long sum = 0;
-    unsigned short answer = 0;
-    int i = bytes;
-    while(i>0)
-    {
-            sum+=*buffer;
-            buffer+=1;
-            i-=2;
-    }
-    sum = (sum >> 16) + (sum & htonl(0x0000ffff));
-    sum += (sum >> 16);
-    return ~sum;
+    unsigned short *ptr;
+
+    // IP header checksum
+    ptr = (unsigned short *)iph;
+    for (int i = iph->ihl * 2; i > 0; i--)
+        sum += *ptr++;
+    
+    // Fold 32-bit sum to 16 bits
+    while (sum >> 16)
+        sum = (sum & 0xFFFF) + (sum >> 16);
+
+    return (unsigned short)(~sum);
 }
 
 int main(int argc, char **argv) {
@@ -108,11 +126,9 @@ int main(int argc, char **argv) {
     read_config_file(config_file, config_buffer);
     parse_config(config_buffer, &config);
 
-  int sockfd;
+    int sockfd;
     struct sockaddr_in dest_addr;
     char packet[PACKET_LEN];
-    struct timeval start_time, end_time;
-    double time_diff;
 
     // Create raw socket
     if ((sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) < 0) {
@@ -131,7 +147,7 @@ int main(int argc, char **argv) {
     ip_header->ttl = 255;
     ip_header->protocol = IPPROTO_TCP;
     ip_header->check = 0;  // Checksum to be filled later
-    ip_header->saddr = inet_addr("127.0.0.1");
+    ip_header->saddr = inet_addr("169.254.200.14");
     ip_header->daddr = inet_addr(config.server_ip_address);
 
     // Fill in the TCP header (SYN packet)
@@ -151,6 +167,9 @@ int main(int argc, char **argv) {
     tcp_header->check = 0;  // Checksum to be filled later
     tcp_header->urg_ptr = 0;
 
+    // Calculate TCP checksum
+    tcp_header->check = tcp_checksum(ip_header, tcp_header);
+
     // Fill in destination address structure
     memset(&dest_addr, 0, sizeof(dest_addr));
     dest_addr.sin_family = AF_INET;
@@ -161,9 +180,6 @@ int main(int argc, char **argv) {
         perror("sendto");
         exit(EXIT_FAILURE);
     }
-
-    // Record start time
-    gettimeofday(&start_time, NULL);
 
     // Change source port for the next SYN packet
     tcp_header->source = htons(SRC_PORT_Y); // Source port Y
@@ -180,26 +196,18 @@ int main(int argc, char **argv) {
     socklen_t addr_len = sizeof(recv_addr);
     char recv_buffer[PACKET_LEN];
     int recv_len;
-    gettimeofday(&end_time, NULL);
     while ((recv_len = recvfrom(sockfd, recv_buffer, PACKET_LEN, 0, (struct sockaddr *) &recv_addr, &addr_len)) > 0) {
         struct iphdr *recv_ip_header = (struct iphdr *) recv_buffer;
         struct tcphdr *recv_tcp_header = (struct tcphdr *) (recv_buffer + sizeof(struct iphdr));
         if (recv_ip_header->protocol == IPPROTO_TCP && recv_tcp_header->rst) {
-            // Record time difference
-            time_diff = end_time.tv_sec - start_time.tv_sec + (end_time.tv_usec - start_time.tv_usec) / 1000000.0;
-            printf("RST packet received after %f seconds.\n", time_diff);
+            printf("RST packet received.\n");
             break;
         }
     }
 
-    if (recv_len <= 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+    if (recv_len < 0) {
         perror("recvfrom");
         exit(EXIT_FAILURE);
-    }
-
-    if (recv_len <= 0 || errno == EAGAIN || errno == EWOULDBLOCK) {
-        // Timeout or no RST packet received
-        printf("Failed to detect due to insufficient information.\n");
     }
 
     close(sockfd);
