@@ -121,14 +121,9 @@ int main(int argc, char **argv) {
     read_config_file(config_file, config_buffer);
     parse_config(config_buffer, &config);
 
-    int sockfd;
+
     struct sockaddr_in dest_addr;
     char packet[PACKET_LEN];
-
-    if ((sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) < 0) {
-        perror("socket");
-        exit(EXIT_FAILURE);
-    }
 
     // Fill in the IP header
     struct iphdr *ip_header = (struct iphdr *) packet;
@@ -170,29 +165,21 @@ int main(int argc, char **argv) {
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_addr.s_addr = ip_header->daddr;
 
-    // Send SYN packet to port X
+	// Setup socket and send SYN packet
+    int sockfd;
+    if ((sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) < 0) {
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
     if (sendto(sockfd, packet, ntohs(ip_header->tot_len), 0, (struct sockaddr *) &dest_addr, sizeof(dest_addr)) < 0) {
         perror("sendto");
         exit(EXIT_FAILURE);
     }
 
-    // // Change source port for the next SYN packet
-    // tcp_header->source = htons(SRC_PORT_Y); // Source port Y
-    // tcp_header->dest = htons(config.tcp_tail_syn_port);  // Destination port for SYN tail
-// 
-    // tcp_header->check = 0;
-    // tcp_header->check = tcp_checksum(ip_header, tcp_header);
-// 
-    // // Send SYN packet to port Y
-    // if (sendto(sockfd, packet, ntohs(ip_header->tot_len), 0, (struct sockaddr *) &dest_addr, sizeof(dest_addr)) < 0) {
-        // perror("sendto");
-        // exit(EXIT_FAILURE);
-    // }
-
 
     // Receive RST packets
-    struct sockaddr_in recv_addr;
-    socklen_t addr_len = sizeof(recv_addr);
+    // struct sockaddr_in recv_addr;
+    // socklen_t addr_len = sizeof(recv_addr);
     char recv_buffer[PACKET_LEN];
     int recv_len;
     while ((recv_len = recvfrom(sockfd, recv_buffer, PACKET_LEN, 0, NULL, NULL)) > 0) {
@@ -207,6 +194,7 @@ int main(int argc, char **argv) {
         perror("recvfrom");
         exit(EXIT_FAILURE);
     }
+    
 
     close(sockfd);
 
