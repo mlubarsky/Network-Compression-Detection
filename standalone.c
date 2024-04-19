@@ -11,8 +11,8 @@
 
 #define BUFFER_SIZE 1024
 #define PACKET_LEN 4096
-#define SRC_PORT_X 12345         // Source port X
-#define SRC_PORT_Y 12346         // Source port Y
+#define SRC_PORT_X 1234         // Source port X
+#define SRC_PORT_Y 1235         // Source port Y
 
 struct config {
     char server_ip_address[16];
@@ -176,25 +176,26 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    // Change source port for the next SYN packet
-    tcp_header->source = htons(SRC_PORT_Y); // Source port Y
-    tcp_header->dest = htons(config.tcp_tail_syn_port);  // Destination port for SYN tail
+    // // Change source port for the next SYN packet
+    // tcp_header->source = htons(SRC_PORT_Y); // Source port Y
+    // tcp_header->dest = htons(config.tcp_tail_syn_port);  // Destination port for SYN tail
+// 
+    // tcp_header->check = 0;
+    // tcp_header->check = tcp_checksum(ip_header, tcp_header);
+// 
+    // // Send SYN packet to port Y
+    // if (sendto(sockfd, packet, ntohs(ip_header->tot_len), 0, (struct sockaddr *) &dest_addr, sizeof(dest_addr)) < 0) {
+        // perror("sendto");
+        // exit(EXIT_FAILURE);
+    // }
 
-    tcp_header->check = 0;
-    tcp_header->check = tcp_checksum(ip_header, tcp_header);
-
-    // Send SYN packet to port Y
-    if (sendto(sockfd, packet, ntohs(ip_header->tot_len), 0, (struct sockaddr *) &dest_addr, sizeof(dest_addr)) < 0) {
-        perror("sendto");
-        exit(EXIT_FAILURE);
-    }
 
     // Receive RST packets
     struct sockaddr_in recv_addr;
     socklen_t addr_len = sizeof(recv_addr);
     char recv_buffer[PACKET_LEN];
     int recv_len;
-    while ((recv_len = recvfrom(sockfd, recv_buffer, PACKET_LEN, 0, (struct sockaddr *) &recv_addr, &addr_len)) > 0) {
+    while ((recv_len = recvfrom(sockfd, recv_buffer, PACKET_LEN, 0, NULL, NULL)) > 0) {
         struct iphdr *recv_ip_header = (struct iphdr *) recv_buffer;
         struct tcphdr *recv_tcp_header = (struct tcphdr *) (recv_buffer + sizeof(struct iphdr));
         if (recv_ip_header->protocol == IPPROTO_TCP && recv_tcp_header->rst) {
@@ -202,7 +203,6 @@ int main(int argc, char **argv) {
             break;
         }
     }
-
     if (recv_len < 0) {
         perror("recvfrom");
         exit(EXIT_FAILURE);
