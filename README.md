@@ -10,6 +10,7 @@
 sudo apt install libjson-c-dev
 ```
 ## Usage
+# Part 1: Client/Server Application
 
 1) Compile 
 ```
@@ -26,6 +27,18 @@ gcc -o client client.c -ljson-c -I/path/to/json-c/include
 
 #On client side
 ./client myconfig.json
+```
+
+# Part 2: Standalone Application
+
+1) Compile 
+```
+gcc -o standalone standalone.c -ljson-c -I/path/to/json-c/include
+
+```
+2) Run 
+```
+sudo ./standalone myconfig.json
 ```
 
 ## Authors
