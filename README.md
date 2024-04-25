@@ -1,16 +1,17 @@
 # Network-Compression-Detection
 
-## Requirements
+# Requirements
 
 **Install json parser library**
 
-## Installation
+# Installation
 
 ```bash
 sudo apt install libjson-c-dev
 ```
-## Usage
+
 # Part 1: Client/Server Application
+## Usage
 
 1) Compile 
 ```
@@ -30,7 +31,7 @@ gcc -o client client.c -ljson-c -I/path/to/json-c/include
 ```
 
 # Part 2: Standalone Application
-
+## Usage
 1) Compile 
 ```
 gcc -o standalone standalone.c -ljson-c -I/path/to/json-c/include
@@ -41,6 +42,6 @@ gcc -o standalone standalone.c -ljson-c -I/path/to/json-c/include
 sudo ./standalone myconfig.json
 ```
 
-## Authors
+# Authors
 
 [@mlubarsky](https://github.com/mlubarsky)
