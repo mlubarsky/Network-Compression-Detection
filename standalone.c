@@ -10,10 +10,11 @@
 #include <errno.h>
 #include <pthread.h>
 
+#define THRESHOLD 100
 #define BUFFER_SIZE 1024
 #define PACKET_LEN 4096
-#define SRC_PORT_X 1234     	// Source port X
-#define SRC_PORT_Y 1235     	// Source port Y
+// #define SRC_PORT_X 1234     	// Source port X
+// #define SRC_PORT_Y 1235     	// Source port Y
 
 struct config {
     char server_ip_address[16];
@@ -105,7 +106,56 @@ unsigned short ip_checksum(struct iphdr *iph) {
     return (unsigned short)(~sum);
 }
 
-void send_udp_packets(int udp_sock, struct config *config) {
+void send_udp_packets_low(int udp_sock, struct config *config) {
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(config->udp_destination_port);
+    server_addr.sin_addr.s_addr = inet_addr(config->server_ip_address);
+
+    struct sockaddr_in client_addr;
+	memset(&client_addr, 0, sizeof(client_addr));
+	client_addr.sin_family = AF_INET;
+	client_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	client_addr.sin_port = htons(config->udp_source_port);
+
+	int reuseaddr = 1;
+	if (setsockopt(udp_sock, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr)) < 0) {
+		perror("Invalid address");
+		exit(EXIT_FAILURE);
+	}
+
+	if (bind(udp_sock, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+		perror("Bind failed");
+		exit(EXIT_FAILURE);
+	}
+
+    // Set the df flag in the IP header
+    int DF = IP_PMTUDISC_DO;
+    if (setsockopt(udp_sock, IPPROTO_IP, IP_MTU_DISCOVER, &DF, sizeof(DF)) < 0) {
+        perror("Failed to set DF flag");
+        exit(EXIT_FAILURE);
+    }
+
+    int ttl = config->ttl_for_udp_packets;
+    if (setsockopt(udp_sock, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) < 0) {
+    	perror("Failed to set DF flag");
+     	exit(EXIT_FAILURE);
+    }
+
+    //Send low entropy UDP packets
+    for (int i = 0; i < config->number_of_udp_packets; i++) {
+        char payload[config->udp_payload_size]; // Set payload size to be 1000
+        *(uint16_t*)payload = htons(i);
+
+        memset(payload + 2, 0, config->udp_payload_size - 2); // Fill payload with zeros
+        sendto(udp_sock, payload, (config->udp_payload_size), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+        usleep(200);
+    }
+    printf("Low entropy UDP packets sent\n");
+}
+
+void send_udp_packets_high(int udp_sock, struct config *config) {
     char high_entropy[config->udp_payload_size];
     FILE *urandom = fopen("/dev/urandom", "r");
     if (!urandom) {
@@ -145,19 +195,11 @@ void send_udp_packets(int udp_sock, struct config *config) {
         exit(EXIT_FAILURE);
     }
 
-    //Send low entropy UDP packets
-    for (int i = 0; i < config->number_of_udp_packets; i++) {
-        char payload[config->udp_payload_size]; // Set payload size to be 1000
-        *(uint16_t*)payload = htons(i);
-
-        memset(payload + 2, 0, config->udp_payload_size - 2); // Fill payload with zeros
-        sendto(udp_sock, payload, (config->udp_payload_size), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
-        usleep(200);
+    int ttl = config->ttl_for_udp_packets;
+    if (setsockopt(udp_sock, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) < 0) {
+    	perror("Failed to set DF flag");
+     	exit(EXIT_FAILURE);
     }
-    printf("Low entropy UDP packets sent\n");
-
-	printf("Sleeping for %d seconds\n", config->inter_measurement_time);
-    sleep(config->inter_measurement_time); // Wait for 15 seconds
 
     //Send high entropy UDP packets
     for (int i = 0; i < config->number_of_udp_packets; i++) {
@@ -195,10 +237,10 @@ void *send_packets(void *arg) {
     ip_header->ttl = 255;
     ip_header->protocol = IPPROTO_TCP;
     ip_header->check = 0;
-    ip_header->saddr = inet_addr("169.254.200.14");
+    ip_header->saddr = inet_addr("169.254.200.14"); // Hard-coded
     ip_header->daddr = inet_addr(config->server_ip_address);
     
-    tcp_header->source = htons(SRC_PORT_X);
+    tcp_header->source = htons(config->tcp_pre_probing_phase_port);
     tcp_header->dest = htons(config->tcp_head_syn_port);
     tcp_header->seq = 0;
     tcp_header->ack_seq = 0;
@@ -221,6 +263,51 @@ void *send_packets(void *arg) {
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_addr.s_addr = ip_header->daddr;
 
+    // Send SYN head packet for low entropy
+    if (sendto(sockfd, packet, ntohs(ip_header->tot_len), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) < 0) {
+        perror("sendto");
+        exit(EXIT_FAILURE);
+    }
+
+    // Set up UDP socket
+    int udp_sock_low = socket(AF_INET, SOCK_DGRAM, 0);
+    if (udp_sock_low < 0) {
+        perror("UDP socket creation error");
+        exit(EXIT_FAILURE);
+    }
+
+    // Send UDP packets
+    sleep(1); // Sleep to catch the RST first before sending UDP packets
+    send_udp_packets_low(udp_sock_low, config);
+
+    // Fill in the IP header and TCP header for SYN tail packet
+    ip_header->saddr = inet_addr("169.254.200.14");	// Hard-coded
+    ip_header->daddr = inet_addr(config->server_ip_address);
+    tcp_header->source = htons(config->tcp_pre_probing_phase_port);
+    tcp_header->dest = htons(config->tcp_tail_syn_port);
+
+    tcp_header->check = 0;
+    tcp_header->check = tcp_checksum(ip_header, tcp_header);
+
+    // Send SYN tail packet for low entropy
+    if (sendto(sockfd, packet, ntohs(ip_header->tot_len), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) < 0) {
+        perror("sendto");
+        exit(EXIT_FAILURE);
+    }
+
+    close(udp_sock_low);
+
+	sleep(config->inter_measurement_time); // Wait for 15 seconds
+
+	// Fill in the IP header and TCP header for SYN tail packet
+    ip_header->saddr = inet_addr("169.254.200.14");	// Hard-coded
+    ip_header->daddr = inet_addr(config->server_ip_address);
+    tcp_header->source = htons(config->tcp_post_probing_phase_port);
+    tcp_header->dest = htons(config->tcp_head_syn_port);
+
+    tcp_header->check = 0;
+    tcp_header->check = tcp_checksum(ip_header, tcp_header);
+
     // Send SYN head packet
     if (sendto(sockfd, packet, ntohs(ip_header->tot_len), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) < 0) {
         perror("sendto");
@@ -228,20 +315,19 @@ void *send_packets(void *arg) {
     }
 
     // Set up UDP socket
-    int udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (udp_sock < 0) {
+    int udp_sock_high = socket(AF_INET, SOCK_DGRAM, 0);
+    if (udp_sock_high < 0) {
         perror("UDP socket creation error");
         exit(EXIT_FAILURE);
     }
+	// Send UDP packets
+  	sleep(1); // Sleep to catch the RST first before sending UDP packets
+   	send_udp_packets_high(udp_sock_high, config);
 
-    // Send UDP packets
-    sleep(1); // Sleep to catch the RST first before sending UDP packets
-    send_udp_packets(udp_sock, config);
-
-    // Fill in the IP header and TCP header for SYN tail packet
-    ip_header->saddr = inet_addr("169.254.200.14");
+	// Fill in the IP header and TCP header for SYN tail packet
+    ip_header->saddr = inet_addr("169.254.200.14");	// Hard-coded
     ip_header->daddr = inet_addr(config->server_ip_address);
-    tcp_header->source = htons(SRC_PORT_Y);
+    tcp_header->source = htons(config->tcp_post_probing_phase_port);
     tcp_header->dest = htons(config->tcp_tail_syn_port);
 
     tcp_header->check = 0;
@@ -254,19 +340,22 @@ void *send_packets(void *arg) {
     }
 
     close(sockfd);
-    close(udp_sock);
+    close(udp_sock_high);
 
     return NULL;
 }
 
 void *receive_rst_packets(void *arg) {
+	clock_t start_time_low, start_time_high, end_time_low, end_time_high;
+    double low_entropy_time, high_entropy_time;
+    
     int recvsock;
     if ((recvsock = socket(AF_INET, SOCK_RAW, IPPROTO_TCP)) < 0) {
         perror("socket");
         exit(EXIT_FAILURE);
     }
 
-    // Receive RST for head packet
+    // Receive RST for head packet for low entropy train
     char recv_buffer[PACKET_LEN];
     int recv_len;
     while (1) {
@@ -274,7 +363,8 @@ void *receive_rst_packets(void *arg) {
         struct iphdr *recv_ip_header = (struct iphdr *)recv_buffer;
         struct tcphdr *recv_tcp_header = (struct tcphdr *)(recv_buffer + sizeof(struct iphdr));
         if (recv_ip_header->protocol == IPPROTO_TCP && recv_tcp_header->rst) {
-            printf("SYN head RST packet received.\n");
+        	start_time_low = clock();
+            printf("Low entropy train: RST for Head packet received.\n");
             break;
         }
     }
@@ -282,14 +372,14 @@ void *receive_rst_packets(void *arg) {
         perror("recvfrom");
         exit(EXIT_FAILURE);
     }
-    
-	// Receive RST for tail packet
+	// Receive RST for tail packet for low entropy train
     while (1) {
 		recv_len = recvfrom(recvsock, recv_buffer, PACKET_LEN, 0, NULL, NULL);
 		struct iphdr *recv_ip_header = (struct iphdr *)recv_buffer;
 		struct tcphdr *recv_tcp_header = (struct tcphdr *)(recv_buffer + sizeof(struct iphdr));
 		if (recv_ip_header->protocol == IPPROTO_TCP && recv_tcp_header->rst) {
-			printf("SYN tail RST packet received.\n");
+			end_time_low = clock();
+			printf("Low entropy train: RST for Tail packet received.\n");
 			break;
 		}
 	}
@@ -297,6 +387,48 @@ void *receive_rst_packets(void *arg) {
 		perror("recvfrom");
 		exit(EXIT_FAILURE);
 	}
+	low_entropy_time = ((((double)end_time_low) - ((double)start_time_low)) / ((double)CLOCKS_PER_SEC)) * 1000;
+	printf("Low Entropy Time: %f\n", low_entropy_time);
+
+	// Receive RST for head packet for high entropy train
+    while (1) {
+        recv_len = recvfrom(recvsock, recv_buffer, PACKET_LEN, 0, NULL, NULL);
+        struct iphdr *recv_ip_header = (struct iphdr *)recv_buffer;
+        struct tcphdr *recv_tcp_header = (struct tcphdr *)(recv_buffer + sizeof(struct iphdr));
+        if (recv_ip_header->protocol == IPPROTO_TCP && recv_tcp_header->rst) {
+        	start_time_high = clock();
+            printf("High entropy train: RST for Head packet received.\n");
+            break;
+        }
+    }
+    if (recv_len < 0) {
+        perror("recvfrom");
+        exit(EXIT_FAILURE);
+    }
+	// Receive RST for tail packet for high entropy train
+    while (1) {
+		recv_len = recvfrom(recvsock, recv_buffer, PACKET_LEN, 0, NULL, NULL);
+		struct iphdr *recv_ip_header = (struct iphdr *)recv_buffer;
+		struct tcphdr *recv_tcp_header = (struct tcphdr *)(recv_buffer + sizeof(struct iphdr));
+		if (recv_ip_header->protocol == IPPROTO_TCP && recv_tcp_header->rst) {
+			end_time_high = clock();
+			printf("High entropy train: RST for Tail packet received.\n");
+			break;
+		}
+	}
+	if (recv_len < 0) {
+		perror("recvfrom");
+		exit(EXIT_FAILURE);
+	}
+	high_entropy_time = ((((double)end_time_high) - ((double)start_time_high)) / ((double)CLOCKS_PER_SEC)) * 1000;
+    printf("High Entropy Time: %f\n", high_entropy_time);
+
+    // Calculate compression
+    if ((high_entropy_time - low_entropy_time) > THRESHOLD) {
+        printf("Compression detected!\n");
+    } else {
+        printf("No compression detected!\n");
+    }
 
     close(recvsock);
     
