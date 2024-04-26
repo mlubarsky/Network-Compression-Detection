@@ -9,12 +9,11 @@
 #include <unistd.h>
 #include <errno.h>
 #include <pthread.h>
+#include <time.h>
 
 #define THRESHOLD 100
 #define BUFFER_SIZE 1024
 #define PACKET_LEN 4096
-// #define SRC_PORT_X 1234     	// Source port X
-// #define SRC_PORT_Y 1235     	// Source port Y
 
 struct config {
     char server_ip_address[16];
@@ -130,13 +129,14 @@ void send_udp_packets_low(int udp_sock, struct config *config) {
 		exit(EXIT_FAILURE);
 	}
 
-    // Set the df flag in the IP header
+    // Set the df flag in  IP header
     int DF = IP_PMTUDISC_DO;
     if (setsockopt(udp_sock, IPPROTO_IP, IP_MTU_DISCOVER, &DF, sizeof(DF)) < 0) {
         perror("Failed to set DF flag");
         exit(EXIT_FAILURE);
     }
 
+	// Set the ttl value in IP header
     int ttl = config->ttl_for_udp_packets;
     if (setsockopt(udp_sock, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) < 0) {
     	perror("Failed to set DF flag");
@@ -188,13 +188,14 @@ void send_udp_packets_high(int udp_sock, struct config *config) {
 		exit(EXIT_FAILURE);
 	}
 
-    // Set the df flag in the IP header
+    // Set the df flag in IP header
     int DF = IP_PMTUDISC_DO;
     if (setsockopt(udp_sock, IPPROTO_IP, IP_MTU_DISCOVER, &DF, sizeof(DF)) < 0) {
         perror("Failed to set DF flag");
         exit(EXIT_FAILURE);
     }
 
+	// Set the ttl in IP header
     int ttl = config->ttl_for_udp_packets;
     if (setsockopt(udp_sock, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) < 0) {
     	perror("Failed to set DF flag");
@@ -237,7 +238,7 @@ void *send_packets(void *arg) {
     ip_header->ttl = 255;
     ip_header->protocol = IPPROTO_TCP;
     ip_header->check = 0;
-    ip_header->saddr = inet_addr("169.254.200.14"); // Hard-coded
+    ip_header->saddr = inet_addr("169.254.200.14"); // Hard-coded client IP
     ip_header->daddr = inet_addr(config->server_ip_address);
     
     tcp_header->source = htons(config->tcp_pre_probing_phase_port);
@@ -258,7 +259,7 @@ void *send_packets(void *arg) {
     // Calculate TCP checksum
     tcp_header->check = tcp_checksum(ip_header, tcp_header);
 
-    // Fill in destination address structure
+    // Fill in destination address struct
     memset(&dest_addr, 0, sizeof(dest_addr));
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_addr.s_addr = ip_header->daddr;
@@ -280,9 +281,7 @@ void *send_packets(void *arg) {
     sleep(1); // Sleep to catch the RST first before sending UDP packets
     send_udp_packets_low(udp_sock_low, config);
 
-    // Fill in the IP header and TCP header for SYN tail packet
-    ip_header->saddr = inet_addr("169.254.200.14");	// Hard-coded
-    ip_header->daddr = inet_addr(config->server_ip_address);
+    // Fill in TCP header for SYN tail packet
     tcp_header->source = htons(config->tcp_pre_probing_phase_port);
     tcp_header->dest = htons(config->tcp_tail_syn_port);
 
@@ -299,9 +298,7 @@ void *send_packets(void *arg) {
 
 	sleep(config->inter_measurement_time); // Wait for 15 seconds
 
-	// Fill in the IP header and TCP header for SYN tail packet
-    ip_header->saddr = inet_addr("169.254.200.14");	// Hard-coded
-    ip_header->daddr = inet_addr(config->server_ip_address);
+	// Fill in TCP header for SYN tail packet
     tcp_header->source = htons(config->tcp_post_probing_phase_port);
     tcp_header->dest = htons(config->tcp_head_syn_port);
 
@@ -324,9 +321,7 @@ void *send_packets(void *arg) {
   	sleep(1); // Sleep to catch the RST first before sending UDP packets
    	send_udp_packets_high(udp_sock_high, config);
 
-	// Fill in the IP header and TCP header for SYN tail packet
-    ip_header->saddr = inet_addr("169.254.200.14");	// Hard-coded
-    ip_header->daddr = inet_addr(config->server_ip_address);
+	// Fill in TCP header for SYN tail packet
     tcp_header->source = htons(config->tcp_post_probing_phase_port);
     tcp_header->dest = htons(config->tcp_tail_syn_port);
 
