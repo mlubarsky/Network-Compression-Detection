@@ -127,7 +127,7 @@ void receive_detection_message(int tcp_sock) {
         exit(EXIT_FAILURE);
     }
     buffer[bytes_received] = '\0';
-    printf("Compression Detection Message from Server: %s\n", buffer);
+    printf("%s\n", buffer);
 }
 
 /*
