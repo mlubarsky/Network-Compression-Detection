@@ -350,11 +350,25 @@ void *receive_rst_packets(void *arg) {
         exit(EXIT_FAILURE);
     }
 
+    // Set timeout for receiving RST packets
+    struct timeval timeout;
+    timeout.tv_sec = 20;
+    timeout.tv_usec = 0;
+    if (setsockopt(recvsock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout)) < 0) {
+    	perror("setsockopt failed");
+    	exit(EXIT_FAILURE);
+    }
+
     // Receive RST for head packet for low entropy train
     char recv_buffer[PACKET_LEN];
     int recv_len;
     while (1) {
         recv_len = recvfrom(recvsock, recv_buffer, PACKET_LEN, 0, NULL, NULL);
+        if (recv_len < 0) {
+            // Failed to receive RST packet within timeout
+            printf("Failed to detect due to insufficient information\n");
+            exit(EXIT_FAILURE);
+        }
         struct iphdr *recv_ip_header = (struct iphdr *)recv_buffer;
         struct tcphdr *recv_tcp_header = (struct tcphdr *)(recv_buffer + sizeof(struct iphdr));
         if (recv_ip_header->protocol == IPPROTO_TCP && recv_tcp_header->rst) {
@@ -370,6 +384,11 @@ void *receive_rst_packets(void *arg) {
 	// Receive RST for tail packet for low entropy train
     while (1) {
 		recv_len = recvfrom(recvsock, recv_buffer, PACKET_LEN, 0, NULL, NULL);
+		if (recv_len < 0) {
+           // Failed to receive RST packet within timeout
+           printf("Failed to detect due to insufficient information\n");
+           exit(EXIT_FAILURE);
+       }
 		struct iphdr *recv_ip_header = (struct iphdr *)recv_buffer;
 		struct tcphdr *recv_tcp_header = (struct tcphdr *)(recv_buffer + sizeof(struct iphdr));
 		if (recv_ip_header->protocol == IPPROTO_TCP && recv_tcp_header->rst) {
@@ -388,6 +407,11 @@ void *receive_rst_packets(void *arg) {
 	// Receive RST for head packet for high entropy train
     while (1) {
         recv_len = recvfrom(recvsock, recv_buffer, PACKET_LEN, 0, NULL, NULL);
+        if (recv_len < 0) {
+            // Failed to receive RST packet within timeout
+            printf("Failed to detect due to insufficient information\n");
+            exit(EXIT_FAILURE);
+        }
         struct iphdr *recv_ip_header = (struct iphdr *)recv_buffer;
         struct tcphdr *recv_tcp_header = (struct tcphdr *)(recv_buffer + sizeof(struct iphdr));
         if (recv_ip_header->protocol == IPPROTO_TCP && recv_tcp_header->rst) {
@@ -403,6 +427,11 @@ void *receive_rst_packets(void *arg) {
 	// Receive RST for tail packet for high entropy train
     while (1) {
 		recv_len = recvfrom(recvsock, recv_buffer, PACKET_LEN, 0, NULL, NULL);
+		if (recv_len < 0) {
+            // Failed to receive RST packet within timeout
+            printf("Failed to detect due to insufficient information\n");
+            exit(EXIT_FAILURE);
+        }
 		struct iphdr *recv_ip_header = (struct iphdr *)recv_buffer;
 		struct tcphdr *recv_tcp_header = (struct tcphdr *)(recv_buffer + sizeof(struct iphdr));
 		if (recv_ip_header->protocol == IPPROTO_TCP && recv_tcp_header->rst) {
