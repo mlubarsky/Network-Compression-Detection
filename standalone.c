@@ -265,9 +265,7 @@ void *send_packets(void *arg) {
     ip_header->ttl = 255;
     ip_header->protocol = IPPROTO_TCP;
     ip_header->check = 0;
-    // ip_header->saddr = inet_addr("169.254.200.14"); // Hard-coded client IP
-    char* client_ip = get_local_ip("enp0s8");
-    printf("%s\n", client_ip);
+    char* client_ip = get_local_ip("enp0s8"); // Want enp0s8 interface
     ip_header->saddr = inet_addr(client_ip);
     ip_header->daddr = inet_addr(config->server_ip_address);
     
