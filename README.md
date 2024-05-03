@@ -43,4 +43,4 @@ sudo ./standalone myconfig.json
 
 # Authors
 
-[@mlubarsky](https://github.com/mlubarsky)
+Maxwell Lubarsky [@mlubarsky](https://github.com/mlubarsky)
