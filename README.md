@@ -32,7 +32,6 @@ gcc -o client client.c -ljson-c -I/path/to/json-c/include
 
 # Part 2: Standalone Application
 ## Usage
-*Note: Replace hard-coded client IP address in send_packets() 
 1) Compile 
 ```
 gcc -o standalone standalone.c -ljson-c -I/path/to/json-c/include
